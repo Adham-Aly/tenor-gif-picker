@@ -75,6 +75,25 @@
           </svg>
         </button>
 
+        <button
+          id="settings-toggle"
+          class="ghost"
+          type="button"
+          aria-label="Settings"
+          aria-pressed="false"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6" />
+            <path
+              d="M12 2.6l1.4 2.2 2.6-.5.5 2.6 2.2 1.4-1.1 2.4 1.1 2.4-2.2 1.4-.5 2.6-2.6-.5L12 21.4l-1.4-2.2-2.6.5-.5-2.6L5.3 15.7l1.1-2.4-1.1-2.4 2.2-1.4.5-2.6 2.6.5z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+
         <button id="close" class="ghost" type="button" aria-label="Close">
           <svg viewBox="0 0 20 20" aria-hidden="true">
             <line
@@ -256,6 +275,30 @@
             <div class="actions">
               <button id="retry-offline" class="btn" type="button">Retry</button>
             </div>
+          </div>
+        </section>
+
+        <section id="pane-settings" class="pane pane--scroll" hidden>
+          <div class="group__head group__head--sticky">
+            <h2 class="eyebrow">Settings</h2>
+          </div>
+          <div class="settings-list">
+            <label class="setting" for="set-cmdg">
+              <span class="setting__text">
+                <span class="setting__title">Open with Cmd+G on Discord</span>
+                <span class="setting__desc"
+                  >Toggle the picker with Cmd+G (Ctrl+G on Windows) on Discord, and suppress
+                  Discord's built-in GIF picker. Turn off to keep Discord's default Cmd+G — the
+                  picker still opens with Cmd+Alt+/.</span
+                >
+              </span>
+              <span class="switch">
+                <input id="set-cmdg" class="switch__input" type="checkbox" role="switch" />
+                <span class="switch__track" aria-hidden="true"
+                  ><span class="switch__thumb"></span
+                ></span>
+              </span>
+            </label>
           </div>
         </section>
       </main>

@@ -22,6 +22,7 @@ import {
 import { copyText } from '../shared/clipboard.js';
 import { decideClickAction } from '../shared/click-action.js';
 import { loadFavourites, toggleFavourite, watchFavourites } from '../shared/favourites.js';
+import { loadSettings, watchSettings } from '../shared/settings.js';
 import {
   assertNever,
   type FrameMessage,
@@ -110,6 +111,7 @@ function send(message: FrameMessage): void {
 // ---------------------------------------------------------------------------
 
 let favouriteUrls = new Set<string>();
+let cmdGEnabled = true;
 
 function tileUrl(tile: Element): string | null {
   const anchor = tile.querySelector<HTMLAnchorElement>(RESULT_SELECTOR);
@@ -303,6 +305,10 @@ function onDragStart(event: DragEvent): void {
   event.dataTransfer.setData('text/uri-list', url);
 }
 
+function isDiscordFrame(): boolean {
+  return document.documentElement.getAttribute('data-deliver') === 'send';
+}
+
 function onKeyDown(event: KeyboardEvent): void {
   if (event.key === 'Escape') {
     // Focus is inside a cross-origin frame, so the parent document never sees
@@ -313,6 +319,32 @@ function onKeyDown(event: KeyboardEvent): void {
     send({ type: 'frame:dismiss' });
     return;
   }
+
+  // The close shortcuts must be handled here too: once the user clicks the grid,
+  // focus is in this frame, so neither the host page nor the picker sees the key.
+  const slash = event.code === 'Slash' || event.key === '/' || event.key === '÷';
+  if (slash && event.altKey && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    send({ type: 'frame:dismiss' });
+    return;
+  }
+  if (
+    !event.repeat &&
+    event.code === 'KeyG' &&
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    isDiscordFrame() &&
+    cmdGEnabled
+  ) {
+    // Also suppresses Chrome's Find Next default for this frame.
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    send({ type: 'frame:dismiss' });
+    return;
+  }
+
   if (event.key === 'Tab' && event.shiftKey) {
     const active = document.activeElement;
     if (!active || active === document.body || active === document.documentElement) {
@@ -439,20 +471,39 @@ function maybeSelfHeal(health: HealthReport): void {
  * picker that already showed "no results".
  */
 function watchGrid(): void {
-  let timer: number | null = null;
+  let healthTimer: number | null = null;
+  let starScheduled = false;
 
   const recheck = (): void => {
-    ensureStars();
-    if (timer !== null) window.clearTimeout(timer);
-    timer = window.setTimeout(() => {
-      timer = null;
+    // Coalesce star re-injection to one pass per frame: a body-level subtree
+    // observer fires far more often than a grid-level one.
+    if (!starScheduled) {
+      starScheduled = true;
+      requestAnimationFrame(() => {
+        starScheduled = false;
+        ensureStars();
+      });
+    }
+    if (healthTimer !== null) window.clearTimeout(healthTimer);
+    healthTimer = window.setTimeout(() => {
+      healthTimer = null;
       const health = runHealthChecks();
       maybeSelfHeal(health);
       send({ type: 'frame:health', health });
     }, 250);
   };
 
-  const target = document.querySelector('.UniversalGifList') ?? document.body;
+  // Observe a STABLE root, not the results grid.
+  //
+  // tenor is an Inferno SPA that client-renders into #root with render() (NOT
+  // hydrate() — verified: zero hydrate() calls in their bundle), so it discards
+  // the server-rendered `.UniversalGifList` wholesale and rebuilds it. An
+  // observer bound to that SSR grid goes deaf the instant tenor mounts, and our
+  // injected stars — unlike the document-delegated click handler and the CSS
+  // ::after label, which both survive — would never be re-added. `document.body`
+  // persists across every re-render; tenor renders INTO #root, it never replaces
+  // body.
+  const target = document.body ?? document.documentElement;
   if (!target) return;
   new MutationObserver(recheck).observe(target, { childList: true, subtree: true });
 }
@@ -480,6 +531,13 @@ function applyDeliverMode(): void {
 if (isPickerFrame()) {
   markFrameWhenReady();
   applyDeliverMode();
+
+  void loadSettings().then((s) => {
+    cmdGEnabled = s.cmdGDiscord;
+  });
+  watchSettings((s) => {
+    cmdGEnabled = s.cmdGDiscord;
+  });
 
   // Capture phase, registered at document_start: this must be in place before
   // tenor's own bundle runs, so no page handler can stopImmediatePropagation()

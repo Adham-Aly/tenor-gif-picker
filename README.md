@@ -56,6 +56,14 @@ Clicking a GIF **inserts the link into the message box and sends it immediately*
 
 <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>G</kbd> opens this picker on Discord and **suppresses whatever Discord (or the browser) would otherwise do with that shortcut** — the key is intercepted on `window` in the capture phase, which runs before any handler Discord registers.
 
+### Settings
+
+A gear button in the header opens a settings panel. Today it holds one toggle:
+
+**Open with Cmd+G on Discord** (on by default). When on, <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>G</kbd> toggles the picker open and closed on Discord and suppresses Discord's own GIF picker. Turn it off to hand <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>G</kbd> back to Discord — the picker still opens with <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>/</kbd>, same as everywhere else.
+
+The close half of both shortcuts is handled inside every frame the picker owns, so a second Cmd+G reliably closes it instead of triggering the browser's find bar.
+
 ### Favourites
 
 The star sits **outside** each tile's link, not inside it. That is what makes clicking it incapable of also copying or sending the GIF — the link is simply not on the event path, so there is no ambiguity to get wrong.
@@ -127,7 +135,7 @@ The full design rationale, including the alternatives that were rejected and why
 ```bash
 npm run build        # produce dist/
 npm run watch        # rebuild on change (then hit ↻ on chrome://extensions)
-npm test             # 121 unit + integration tests, no network
+npm test             # 136 unit + integration tests, no network
 npm run canary       # 10 live tests against the real tenor.com
 npm run check        # typecheck + lint + format + test + build
 ```

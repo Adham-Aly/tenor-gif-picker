@@ -36,6 +36,7 @@ import {
   type PickerMessage,
   type SwToPickerMessage,
 } from '../shared/messages.js';
+import { loadSettings, updateSettings, watchSettings } from '../shared/settings.js';
 import { buildSearchUrl } from '../shared/urls.js';
 
 // ---------------------------------------------------------------------------
@@ -53,6 +54,8 @@ const queryInput = el<HTMLInputElement>('query');
 const spinner = el<HTMLSpanElement>('spinner');
 const clearBtn = el<HTMLButtonElement>('clear');
 const favsToggle = el<HTMLButtonElement>('favs-toggle');
+const settingsToggle = el<HTMLButtonElement>('settings-toggle');
+const cmdgSwitch = el<HTMLInputElement>('set-cmdg');
 const closeBtn = el<HTMLButtonElement>('close');
 const progress = el<HTMLDivElement>('progress');
 const recentsBlock = el<HTMLDivElement>('recents-block');
@@ -82,27 +85,33 @@ const panes = {
   idle: el<HTMLElement>('pane-idle'),
   loading: el<HTMLElement>('pane-loading'),
   favs: el<HTMLElement>('pane-favs'),
+  settings: el<HTMLElement>('pane-settings'),
   empty: el<HTMLElement>('pane-empty'),
   error: el<HTMLElement>('pane-error'),
   offline: el<HTMLElement>('pane-offline'),
 };
 
-type View = 'idle' | 'loading' | 'ready' | 'favs' | 'empty' | 'error' | 'offline';
+type View = 'idle' | 'loading' | 'ready' | 'favs' | 'settings' | 'empty' | 'error' | 'offline';
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
-const rawTabId = Number.parseInt(new URLSearchParams(location.search).get('tabId') ?? '', 10);
+const searchParams = new URLSearchParams(location.search);
+const rawTabId = Number.parseInt(searchParams.get('tabId') ?? '', 10);
 const tabId = Number.isInteger(rawTabId) ? rawTabId : -1;
+/** Read synchronously from the URL so the Cmd+G handler never races storage. */
+const isDiscordHost = searchParams.get('discord') === '1';
 
 let port: chrome.runtime.Port | null = null;
 let reconnectAttempts = 0;
 let currentQuery = '';
 let deliverMode: 'copy' | 'send' = 'copy';
+let cmdGEnabled = true;
 let view: View = 'idle';
-/** The view to return to when leaving the favourites panel. */
+/** The view to return to when leaving a secondary panel (favourites / settings). */
 let viewBeforeFavs: View = 'idle';
+let viewBeforeSettings: View = 'idle';
 let recents: string[] = [];
 let favourites: Favourite[] = [];
 
@@ -223,7 +232,8 @@ function setView(next: View): void {
   if (next !== 'loading') slowHint.hidden = true;
   setBusy(next === 'loading');
   favsToggle.setAttribute('aria-pressed', next === 'favs' ? 'true' : 'false');
-  favsToggle.setAttribute('aria-label', next === 'favs' ? 'Back to search' : 'Show favourites');
+  favsToggle.setAttribute('aria-label', next === 'favs' ? 'Back to search' : 'Show saved GIFs');
+  settingsToggle.setAttribute('aria-pressed', next === 'settings' ? 'true' : 'false');
 }
 
 function clearTimers(): void {
@@ -424,9 +434,18 @@ function toggleFavouritesView(): void {
     setView(viewBeforeFavs === 'favs' ? 'idle' : viewBeforeFavs);
     return;
   }
-  viewBeforeFavs = view;
+  viewBeforeFavs = view === 'settings' ? viewBeforeSettings : view;
   renderFavourites();
   setView('favs');
+}
+
+function toggleSettingsView(): void {
+  if (view === 'settings') {
+    setView(viewBeforeSettings === 'settings' ? 'idle' : viewBeforeSettings);
+    return;
+  }
+  viewBeforeSettings = view === 'favs' ? viewBeforeFavs : view;
+  setView('settings');
 }
 
 // ---------------------------------------------------------------------------
@@ -685,6 +704,11 @@ clearBtn.addEventListener('click', () => {
 });
 
 favsToggle.addEventListener('click', toggleFavouritesView);
+settingsToggle.addEventListener('click', toggleSettingsView);
+cmdgSwitch.addEventListener(
+  'change',
+  () => void updateSettings({ cmdGDiscord: cmdgSwitch.checked }),
+);
 closeBtn.addEventListener('click', close);
 openTabBtn.addEventListener('click', openInTab);
 retryBtn.addEventListener('click', () => void search(currentQuery || 'gif', { remember: false }));
@@ -714,6 +738,35 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
+// The close half of the toggle shortcuts. Once the picker is open its search
+// input has focus, so these keydowns fire in THIS iframe, not the host window —
+// which is why a naive host-only handler let the second Cmd+G fall through to
+// Chrome's Find Next. Capture phase + preventDefault suppresses that here.
+window.addEventListener(
+  'keydown',
+  (event) => {
+    if (event.repeat) return;
+    const slash = event.code === 'Slash' || event.key === '/' || event.key === '÷';
+    if (slash && event.altKey && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (
+      event.code === 'KeyG' &&
+      (event.metaKey || event.ctrlKey) &&
+      !event.altKey &&
+      !event.shiftKey &&
+      isDiscordHost &&
+      cmdGEnabled
+    ) {
+      event.preventDefault();
+      close();
+    }
+  },
+  true,
+);
+
 window.addEventListener('online', () => {
   if (view === 'offline') void search(currentQuery || 'gif', { remember: false });
 });
@@ -740,12 +793,22 @@ watchFavourites((list) => {
 // Boot
 // ---------------------------------------------------------------------------
 
+// On Discord the host sets deliver='send'; use the URL flag as the immediate
+// signal and storage as confirmation.
+if (isDiscordHost) deliverMode = 'send';
 void chrome.storage.local
   .get(STORAGE_KEYS.deliver)
   .then((stored) => {
     if (stored[STORAGE_KEYS.deliver] === 'send') deliverMode = 'send';
   })
   .catch(() => undefined);
+
+function applySettings(cmdG: boolean): void {
+  cmdGEnabled = cmdG;
+  cmdgSwitch.checked = cmdG;
+}
+void loadSettings().then((s) => applySettings(s.cmdGDiscord));
+watchSettings((s) => applySettings(s.cmdGDiscord));
 
 buildSkeleton();
 renderIdle();

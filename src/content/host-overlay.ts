@@ -30,6 +30,7 @@ import {
 } from '../shared/constants.js';
 import { deliverToDiscord, isDiscord } from '../shared/discord.js';
 import { isSwToHostMessage, type WhoAmIReply } from '../shared/messages.js';
+import { loadSettings, watchSettings } from '../shared/settings.js';
 
 interface Size {
   width: number;
@@ -130,7 +131,15 @@ function install(): void {
   let cachedTabId: number | null = null;
 
   const onDiscord = isDiscord();
+  let cmdGEnabled = true;
   const isOpen = (): boolean => hostEl !== null;
+
+  void loadSettings().then((s) => {
+    cmdGEnabled = s.cmdGDiscord;
+  });
+  watchSettings((s) => {
+    cmdGEnabled = s.cmdGDiscord;
+  });
 
   // -------------------------------------------------------------------------
   // Geometry
@@ -320,8 +329,11 @@ function install(): void {
     iframe.setAttribute('allow', 'clipboard-write');
     iframe.setAttribute('referrerpolicy', 'no-referrer');
     iframe.setAttribute('title', 'Tenor GIF picker');
-    const query = tabId === null ? '' : `?tabId=${String(tabId)}`;
-    iframe.src = `${chrome.runtime.getURL('picker.html')}${query}`;
+    const params = new URLSearchParams();
+    if (tabId !== null) params.set('tabId', String(tabId));
+    if (onDiscord) params.set('discord', '1');
+    const query = params.toString();
+    iframe.src = `${chrome.runtime.getURL('picker.html')}${query ? `?${query}` : ''}`;
 
     const grip = document.createElement('div');
     grip.className = 'grip';
@@ -476,13 +488,17 @@ function install(): void {
       return;
     }
 
-    // Cmd/Ctrl + G, on Discord only.
+    // Cmd/Ctrl + G, on Discord, when the setting is on.
     //
     // Capture phase on `window` fires before any listener Discord registers on
     // document or on the composer, and preventDefault suppresses their handler
-    // as well as the browser's find-next.
+    // as well as the browser's find-next. When the setting is off, we leave the
+    // key entirely alone so Discord's native picker and the browser behave
+    // normally. (When the picker is already open, focus lives inside it, so the
+    // close half of this shortcut is handled there — see picker.ts / tenor-frame.ts.)
     if (
       onDiscord &&
+      cmdGEnabled &&
       event.code === 'KeyG' &&
       (event.metaKey || event.ctrlKey) &&
       !event.altKey &&
