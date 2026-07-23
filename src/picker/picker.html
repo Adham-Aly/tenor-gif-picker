@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="color-scheme" content="light dark" />
+    <meta name="color-scheme" content="dark" />
     <title>Tenor GIF picker</title>
     <link rel="stylesheet" href="picker.css" />
   </head>
@@ -26,6 +26,7 @@
             spellcheck="false"
             aria-label="Search Tenor for GIFs"
           />
+          <span id="spinner" class="search__spinner" aria-hidden="true" hidden></span>
           <button id="clear" class="search__clear" type="button" aria-label="Clear search" hidden>
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <path
@@ -35,6 +36,27 @@
             </svg>
           </button>
         </div>
+
+        <button
+          id="favs-toggle"
+          class="iconbtn iconbtn--star"
+          type="button"
+          aria-label="Show favourites"
+          aria-pressed="false"
+          title="Favourites"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 3.4l2.65 5.5 6 .88-4.33 4.24 1.02 6.02L12 17.2l-5.34 2.84 1.02-6.02L3.35 9.78l6-.88z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.1"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+
         <button id="close" class="iconbtn" type="button" aria-label="Close GIF picker">
           <svg viewBox="0 0 16 16" aria-hidden="true">
             <path
@@ -44,6 +66,8 @@
           </svg>
         </button>
       </header>
+
+      <div id="progress" class="progress" hidden><span class="progress__bar"></span></div>
 
       <main class="body">
         <!-- Held at opacity 0 until the in-frame script handshakes. This is the
@@ -73,8 +97,27 @@
         </section>
 
         <section id="pane-loading" class="pane" hidden>
+          <div class="loading__head">
+            <span class="loading__dot"></span>
+            <span id="loading-label" class="loading__label">Searching Tenor…</span>
+          </div>
           <div id="skeleton" class="skeleton" aria-hidden="true"></div>
           <p id="slow-hint" class="pane__hint" hidden>Still loading…</p>
+        </section>
+
+        <section id="pane-favs" class="pane pane--scroll" hidden>
+          <div class="block__head block__head--sticky">
+            <h2 class="block__title">Favourites</h2>
+            <button id="clear-favs" class="linkbtn" type="button" hidden>Clear all</button>
+          </div>
+          <div id="favs-grid" class="favgrid"></div>
+          <div id="favs-empty" class="state state--inline" hidden>
+            <div class="state__emoji" aria-hidden="true">⭐</div>
+            <h3 class="state__title">No favourites yet</h3>
+            <p class="state__body">
+              Hover any GIF and click the star in its corner to save it here.
+            </p>
+          </div>
         </section>
 
         <section id="pane-empty" class="pane pane--center" hidden>

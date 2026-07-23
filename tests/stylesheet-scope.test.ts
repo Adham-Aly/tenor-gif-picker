@@ -141,8 +141,27 @@ describe('tenor-frame.css scoping', () => {
     expect(css).not.toMatch(/\.Gif\.Card/);
   });
 
-  it('does not hide the related-tag rail, which we keep as category chips', () => {
-    expect(css).not.toMatch(/\.TagList\s*\{[^}]*display:\s*none/);
+  it('hides the related-query suggestion rail', () => {
+    // The picker shows search results and nothing else. Both the rail and its
+    // wrapper go, so no empty gap is left above the grid.
+    expect(css).toMatch(/\.TagList\s*\{[\s\S]*?display:\s*none/);
+    expect(css).toContain('.gallery-container > .search');
+  });
+
+  it('is dark unconditionally rather than following the OS theme', () => {
+    // tenor.com is light-only, so a light frame inside dark chrome would read
+    // as broken. The theme is ours and is not negotiable at runtime.
+    const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(withoutComments).not.toMatch(/@media[^{]*prefers-color-scheme/);
+    expect(withoutComments).toContain('color-scheme: dark');
+  });
+
+  it('injects the favourite star OUTSIDE the tile anchor', () => {
+    // Positioned absolutely above the anchor, and appended as its sibling by
+    // tenor-frame.ts, so clicking the star can never also copy the GIF.
+    expect(css).toContain('.tgp-star');
+    expect(css).toMatch(/\.tgp-star\s*\{[\s\S]*?position:\s*absolute/);
+    expect(css).toMatch(/\.tgp-star\s*\{[\s\S]*?z-index/);
   });
 });
 
@@ -176,13 +195,24 @@ describe('manifest sanity', () => {
 
   it('injects into the tenor frame at document_start, in all frames', () => {
     const scripts = manifest['content_scripts'] as Array<Record<string, unknown>>;
-    expect(scripts).toHaveLength(1);
-    const [script] = scripts;
+    const tenor = scripts.find((script) => (script['js'] as string[]).includes('tenor-frame.js'));
+    expect(tenor).toBeDefined();
     // document_start matters: our capture listeners must beat tenor's bundle.
-    expect(script?.['run_at']).toBe('document_start');
+    expect(tenor?.['run_at']).toBe('document_start');
     // all_frames matters: the tenor document IS a sub-frame.
-    expect(script?.['all_frames']).toBe(true);
-    expect(script?.['matches']).toEqual(['*://tenor.com/*', '*://*.tenor.com/*']);
+    expect(tenor?.['all_frames']).toBe(true);
+    expect(tenor?.['matches']).toEqual(['*://tenor.com/*', '*://*.tenor.com/*']);
+  });
+
+  it('runs the overlay only in the top frame of each page', () => {
+    const scripts = manifest['content_scripts'] as Array<Record<string, unknown>>;
+    const overlay = scripts.find((script) =>
+      (script['js'] as string[]).includes('host-overlay.js'),
+    );
+    expect(overlay).toBeDefined();
+    // all_frames:false — otherwise every ad iframe spawns its own picker.
+    expect(overlay?.['all_frames']).toBe(false);
+    expect(overlay?.['matches']).toEqual(['<all_urls>']);
   });
 
   it('has no default_popup, so action.onClicked fires and grants activeTab', () => {

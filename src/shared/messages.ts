@@ -66,9 +66,22 @@ export type FrameMessage =
 // host-page overlay <-> service worker
 // ---------------------------------------------------------------------------
 
-export type SwToHostMessage = { type: 'sw:toggle'; tabId: number } | { type: 'sw:close' };
+export type SwToHostMessage =
+  | { type: 'sw:toggle'; tabId: number }
+  | { type: 'sw:close' }
+  /**
+   * A GIF was picked. On most sites this is informational (the clipboard
+   * already has it); on Discord the host overlay inserts it into the composer
+   * and sends it.
+   */
+  | { type: 'sw:deliver'; url: string };
 
-export type HostMessage = { type: 'host:closed' };
+/** Host overlay -> service worker. `host:whoami` expects a `{ tabId }` reply. */
+export type HostMessage = { type: 'host:whoami' } | { type: 'host:closed' };
+
+export interface WhoAmIReply {
+  tabId: number | null;
+}
 
 // ---------------------------------------------------------------------------
 // picker frame <-> service worker (long-lived port)
@@ -86,7 +99,9 @@ export type PickerMessage =
   | { type: 'picker:arm'; requestId: string }
   | { type: 'picker:close' }
   | { type: 'picker:copy-offscreen'; url: string; requestId: string }
-  | { type: 'picker:open-external'; url: string };
+  | { type: 'picker:open-external'; url: string }
+  /** A favourite was activated from our own panel rather than the tenor frame. */
+  | { type: 'picker:deliver'; url: string };
 
 export type SwToPickerMessage =
   | { type: 'sw:armed'; requestId: string; ok: boolean }
@@ -128,7 +143,7 @@ export function isFrameMessage(value: unknown): value is FrameMessage {
   return hasStringType(value) && FRAME_TYPES.has(value.type as FrameMessage['type']);
 }
 
-const SW_TO_HOST_TYPES = new Set<SwToHostMessage['type']>(['sw:toggle', 'sw:close']);
+const SW_TO_HOST_TYPES = new Set<SwToHostMessage['type']>(['sw:toggle', 'sw:close', 'sw:deliver']);
 
 export function isSwToHostMessage(value: unknown): value is SwToHostMessage {
   return hasStringType(value) && SW_TO_HOST_TYPES.has(value.type as SwToHostMessage['type']);
@@ -140,6 +155,7 @@ const PICKER_TYPES = new Set<PickerMessage['type']>([
   'picker:close',
   'picker:copy-offscreen',
   'picker:open-external',
+  'picker:deliver',
 ]);
 
 export function isPickerMessage(value: unknown): value is PickerMessage {
@@ -154,6 +170,12 @@ const SW_TO_PICKER_TYPES = new Set<SwToPickerMessage['type']>([
 
 export function isSwToPickerMessage(value: unknown): value is SwToPickerMessage {
   return hasStringType(value) && SW_TO_PICKER_TYPES.has(value.type as SwToPickerMessage['type']);
+}
+
+const HOST_TYPES = new Set<HostMessage['type']>(['host:whoami', 'host:closed']);
+
+export function isHostMessage(value: unknown): value is HostMessage {
+  return hasStringType(value) && HOST_TYPES.has(value.type as HostMessage['type']);
 }
 
 export function isOffscreenMessage(value: unknown): value is OffscreenMessage {

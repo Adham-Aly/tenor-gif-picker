@@ -1,55 +1,37 @@
 /**
- * Picker chrome.
+ * Picker chrome — dark.
  *
- * This runs in our own extension-origin document, so nothing here has to fight
- * a host page's stylesheet. A system font stack is used deliberately rather
- * than fetching Inter to match tenor's type: a webfont is a network dependency
- * and a CSP surface for a 52px header, and the difference is invisible at this
- * size.
+ * Runs in our own extension-origin document, so nothing here has to fight a
+ * host page's stylesheet. A system font stack is used deliberately rather than
+ * fetching Inter to match tenor's type: a webfont is a network dependency and a
+ * CSP surface for a 52px header, and the difference is invisible at this size.
  */
 
 :root {
+  color-scheme: dark;
+
   --font:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
     'Apple Color Emoji', 'Segoe UI Emoji';
 
-  --surface: #ffffff;
-  --surface-alt: #f7f8f9;
-  --text: #060607;
-  --muted: #5c5e66;
-  --border: rgba(0, 0, 0, 0.08);
-  --input-bg: #f0f1f3;
-  --input-bg-focus: #e9eaee;
-  --chip-bg: #eff0f3;
-  --chip-bg-hover: #e3e5e9;
+  --surface: #131417;
+  --surface-alt: #1a1b1f;
+  --raised: #1c1d21;
+  --text: #f2f3f5;
+  --muted: #9aa0a8;
+  --border: rgba(255, 255, 255, 0.08);
+  --input-bg: #202126;
+  --input-bg-focus: #26282e;
+  --chip-bg: #202126;
+  --chip-bg-hover: #2c2e35;
   --accent: #5865f2;
   --accent-text: #ffffff;
-  --danger: #d83c3e;
-  --skeleton-a: #ececef;
-  --skeleton-b: #f6f6f8;
-  --toast-bg: #17181b;
-  --toast-text: #ffffff;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --surface: #1e1f22;
-    --surface-alt: #232428;
-    --text: #f2f3f5;
-    --muted: #b5bac1;
-    --border: rgba(255, 255, 255, 0.08);
-    --input-bg: #2b2d31;
-    --input-bg-focus: #34363c;
-    --chip-bg: #2b2d31;
-    --chip-bg-hover: #3a3d44;
-    --accent: #5865f2;
-    --accent-text: #ffffff;
-    --danger: #f26d6f;
-    --skeleton-a: #2a2c30;
-    --skeleton-b: #33363b;
-    --toast-bg: #f2f3f5;
-    --toast-text: #17181b;
-  }
+  --star: #f0b232;
+  --danger: #f2686a;
+  --skeleton-a: #1c1d21;
+  --skeleton-b: #26282e;
+  --toast-bg: #f2f3f5;
+  --toast-text: #16171a;
 }
 
 * {
@@ -62,13 +44,13 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  background: var(--surface);
 }
 
 body {
   font-family: var(--font);
   font-size: 14px;
   color: var(--text);
-  background: var(--surface);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -78,6 +60,7 @@ body {
   height: 100%;
   position: relative;
   overflow: hidden;
+  background: var(--surface);
 }
 
 /* ---------------------------------------------------------------- header -- */
@@ -87,8 +70,8 @@ body {
   height: 52px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 8px 0 12px;
+  gap: 4px;
+  padding: 0 6px 0 12px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
@@ -100,7 +83,7 @@ body {
   display: flex;
   align-items: center;
   height: 36px;
-  padding: 0 8px 0 30px;
+  padding: 0 6px 0 30px;
   border-radius: 8px;
   background: var(--input-bg);
   transition:
@@ -138,17 +121,38 @@ body {
   color: var(--muted);
 }
 
+.search__spinner {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: var(--accent);
+  animation: tgp-spin 620ms linear infinite;
+}
+
+.search__spinner[hidden] {
+  display: none;
+}
+
+@keyframes tgp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .search__clear,
 .iconbtn {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -162,10 +166,14 @@ body {
   height: 22px;
 }
 
-.search__clear svg,
-.iconbtn svg {
+.search__clear svg {
   width: 14px;
   height: 14px;
+}
+
+.iconbtn svg {
+  width: 17px;
+  height: 17px;
 }
 
 .search__clear:hover,
@@ -174,13 +182,51 @@ body {
   color: var(--text);
 }
 
+.iconbtn--star[aria-pressed='true'] {
+  color: var(--star);
+  background: rgba(240, 178, 50, 0.12);
+}
+
 .iconbtn:focus-visible,
 .search__clear:focus-visible,
 .btn:focus-visible,
 .chip:focus-visible,
-.linkbtn:focus-visible {
+.linkbtn:focus-visible,
+.fav__star:focus-visible,
+.fav__hit:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------- progress -- */
+
+.progress {
+  flex: 0 0 auto;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.progress[hidden] {
+  display: none;
+}
+
+.progress__bar {
+  display: block;
+  height: 100%;
+  width: 40%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: tgp-indeterminate 1.1s ease-in-out infinite;
+}
+
+@keyframes tgp-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
 }
 
 /* ------------------------------------------------------------------ body -- */
@@ -199,7 +245,7 @@ body {
   height: 100%;
   border: 0;
   display: block;
-  background: transparent;
+  background: var(--surface);
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease-out;
@@ -243,6 +289,47 @@ body {
   color: var(--muted);
 }
 
+/* --------------------------------------------------------------- loading -- */
+
+.loading__head {
+  position: absolute;
+  top: 12px;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.loading__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: tgp-pulse 1s ease-in-out infinite;
+}
+
+@keyframes tgp-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.loading__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 /* ------------------------------------------------------------ idle pane -- */
 
 .block {
@@ -255,6 +342,15 @@ body {
   justify-content: space-between;
 }
 
+.block__head--sticky {
+  position: sticky;
+  top: -14px;
+  z-index: 2;
+  margin: -14px -14px 10px;
+  padding: 14px 14px 8px;
+  background: var(--surface);
+}
+
 .block__title {
   margin: 0 0 8px;
   font-size: 11px;
@@ -262,6 +358,10 @@ body {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+.block__head .block__title {
+  margin-bottom: 0;
 }
 
 .chips {
@@ -314,10 +414,105 @@ body {
   color: var(--text);
 }
 
+.linkbtn[hidden] {
+  display: none;
+}
+
 .hint {
   margin: 4px 0 0;
   font-size: 12px;
   color: var(--muted);
+}
+
+/* ------------------------------------------------------------ favourites -- */
+
+.favgrid {
+  column-count: 2;
+  column-gap: 8px;
+}
+
+.favgrid:empty {
+  display: none;
+}
+
+.fav {
+  position: relative;
+  break-inside: avoid;
+  margin: 0 0 8px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--raised);
+}
+
+.fav__hit {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.fav__hit img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  background: var(--raised);
+}
+
+.fav::after {
+  content: attr(data-label);
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transition: opacity 110ms ease-out;
+  pointer-events: none;
+  border-radius: 6px;
+}
+
+.fav[data-label]:hover::after {
+  opacity: 1;
+}
+
+.fav.is-copied::after {
+  content: '✓  Copied';
+  opacity: 1;
+}
+
+/* Same visual language as the star inside the tenor frame. */
+.fav__star {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  z-index: 3;
+  background-color: rgba(0, 0, 0, 0.62);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 15px 15px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23f0b232' stroke='%23f0b232' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.4l2.65 5.5 6 .88-4.33 4.24 1.02 6.02L12 17.2l-5.34 2.84 1.02-6.02L3.35 9.78l6-.88z'/%3E%3C/svg%3E");
+  transition:
+    transform 110ms ease-out,
+    background-color 110ms ease-out;
+}
+
+.fav__star:hover {
+  background-color: rgba(0, 0, 0, 0.82);
+  transform: scale(1.09);
 }
 
 /* -------------------------------------------------------------- skeleton -- */
@@ -325,7 +520,7 @@ body {
 .skeleton {
   position: absolute;
   inset: 0;
-  padding: 10px 8px;
+  padding: 34px 8px 10px;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
@@ -365,6 +560,10 @@ body {
 .state {
   text-align: center;
   max-width: 300px;
+}
+
+.state--inline {
+  margin: 26px auto 0;
 }
 
 .state__emoji {
@@ -498,7 +697,7 @@ body {
   font-weight: 600;
   color: var(--toast-text);
   background: var(--toast-bg);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   opacity: 0;
   pointer-events: none;
   transition:
@@ -521,7 +720,7 @@ body {
 
 .toast.is-error {
   background: var(--danger);
-  color: #fff;
+  color: #16171a;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -529,10 +728,14 @@ body {
   .frame,
   .search,
   .chip,
-  .btn {
+  .btn,
+  .fav__star {
     transition-duration: 1ms !important;
   }
-  .skeleton__tile {
+  .skeleton__tile,
+  .progress__bar,
+  .loading__dot,
+  .search__spinner {
     animation: none;
   }
   .toast.is-visible {

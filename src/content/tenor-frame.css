@@ -17,21 +17,31 @@
  */
 
 /* ========================================================================== */
-/* Surface                                                                    */
+/* Surface — dark, unconditionally.                                           */
+/* tenor.com is light-only (verified: zero prefers-color-scheme, zero .dark in */
+/* their stylesheet), so the dark theme is entirely ours. Because the          */
+/* allow-list has already stripped their chrome, the remaining surface is a    */
+/* background, image tiles and a scrollbar.                                    */
 /* ========================================================================== */
 
 html[data-tenor-picker] {
+  color-scheme: dark;
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.22) transparent;
-  background: #ffffff !important;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  background: #131417 !important;
   overflow-x: hidden !important;
 }
 
 html[data-tenor-picker] body {
-  background: #ffffff !important;
+  background: #131417 !important;
+  color: #dbdee1 !important;
   margin: 0 !important;
   padding: 0 !important;
   overflow-x: hidden !important;
+}
+
+html[data-tenor-picker] .BaseApp {
+  background: #131417 !important;
 }
 
 html[data-tenor-picker]::-webkit-scrollbar {
@@ -41,13 +51,13 @@ html[data-tenor-picker]::-webkit-scrollbar-track {
   background: transparent;
 }
 html[data-tenor-picker]::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(255, 255, 255, 0.2);
   border-radius: 999px;
   border: 3px solid transparent;
   background-clip: content-box;
 }
 html[data-tenor-picker]::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.32);
+  background: rgba(255, 255, 255, 0.32);
   background-clip: content-box;
 }
 
@@ -78,6 +88,7 @@ html[data-tenor-picker] .SearchPage {
   margin: 0 !important;
   max-width: none !important;
   width: auto !important;
+  background: transparent !important;
 }
 
 html[data-tenor-picker] .gallery-container {
@@ -88,29 +99,24 @@ html[data-tenor-picker] .gallery-container {
 }
 
 /* ========================================================================== */
-/* TIER B — reclaim vertical space. 400x540 is tight.                         */
-/* The related-tag rail is deliberately KEPT: those chips are the equivalent   */
-/* of Discord's category chips, and tenor-frame.ts routes their clicks back    */
-/* through our own search state so the two can never drift out of sync.        */
+/* TIER B — everything above the grid goes.                                   */
+/*                                                                            */
+/* The related-search rail (`div.search > ul.TagList`) is tenor's "similar     */
+/* queries" strip. It is removed: this is a GIF picker, and the request is for */
+/* search results and nothing else.                                           */
 /* ========================================================================== */
 
 html[data-tenor-picker] .gallery-container > h1 {
   display: none !important; /* just echoes the query we already show */
 }
 
-html[data-tenor-picker] .UniversalSearchFormatToggle {
-  display: none !important; /* GIFs / Stickers / Memes — GIFs only matches the spec */
-}
-
+html[data-tenor-picker] .gallery-container > .search,
 html[data-tenor-picker] .TagList {
-  margin: 0 0 8px !important;
-  padding: 0 2px !important;
+  display: none !important; /* related-query suggestions */
 }
 
-html[data-tenor-picker] .TagList .RelatedTag,
-html[data-tenor-picker] .TagList a {
-  font-size: 12px !important;
-  line-height: 1.6 !important;
+html[data-tenor-picker] .UniversalSearchFormatToggle {
+  display: none !important; /* GIFs / Stickers / Memes — GIFs only */
 }
 
 /* ========================================================================== */
@@ -128,18 +134,13 @@ html[data-tenor-picker] .UniversalGifListItem figcaption.tags {
 /* ========================================================================== */
 /* TIER D — the important one.                                                */
 /*                                                                            */
-/* tenor injects a promoted "Upload to Tenor" tile INSIDE the grid (one per    */
-/* search page, around data-index 16). It reuses .UniversalGifListItem and is  */
-/* not distinguishable by any stable class — matching `.Card` would break the  */
-/* day they run a different campaign.                                         */
+/* tenor injects a promoted "Upload to Tenor" tile INSIDE the grid. It reuses  */
+/* .UniversalGifListItem and is not distinguishable by any stable class —      */
+/* matching `.Card` would break the day they run a different campaign.        */
 /*                                                                            */
 /* So match on the invariant that actually DEFINES a result: it links to       */
 /* /view/. This is class-name independent, and removes whatever they inject    */
 /* next (sponsored tiles, upsells, surveys) with no code change.               */
-/*                                                                            */
-/* The same invariant guards the click path, so even with this stylesheet      */
-/* entirely disabled, clicking a promoted tile cannot produce a bogus          */
-/* clipboard write. Belt and braces on one invariant.                          */
 /* ========================================================================== */
 
 html[data-tenor-picker] .UniversalGifListItem:not(:has(a[href^='/view/'])) {
@@ -147,7 +148,7 @@ html[data-tenor-picker] .UniversalGifListItem:not(:has(a[href^='/view/'])) {
 }
 
 /* ========================================================================== */
-/* Grid polish                                                                */
+/* Grid                                                                        */
 /* ========================================================================== */
 
 html[data-tenor-picker] .UniversalGifList {
@@ -156,6 +157,7 @@ html[data-tenor-picker] .UniversalGifList {
 
 html[data-tenor-picker] .UniversalGifListItem {
   margin: 5px 4px !important;
+  position: relative !important;
 }
 
 html[data-tenor-picker] .UniversalGifListItem > a {
@@ -163,6 +165,7 @@ html[data-tenor-picker] .UniversalGifListItem > a {
   display: block !important;
   border-radius: 6px;
   overflow: hidden;
+  background: #1c1d21;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -181,10 +184,7 @@ html[data-tenor-picker] .UniversalGifListItem video {
 /* The copy affordance.                                                       */
 /*                                                                            */
 /* The user's mental model, trained by every GIF grid on the internet, is      */
-/* "click -> navigate". We are changing that verb, so it has to be taught —    */
-/* this is not optional polish. It also replaces the fav/share buttons hidden  */
-/* in Tier C, so hover still has an affordance and the tile does not feel      */
-/* dead.                                                                       */
+/* "click -> navigate". We are changing that verb, so it has to be taught.     */
 /* ========================================================================== */
 
 html[data-tenor-picker] .UniversalGifListItem > a::after {
@@ -234,7 +234,7 @@ html[data-tenor-picker] .UniversalGifListItem.tgp-copied > a::after {
   opacity: 1;
   align-items: center;
   font-size: 13px;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.6);
   animation: tgp-pop 120ms ease-out;
 }
 
@@ -243,7 +243,7 @@ html[data-tenor-picker] .UniversalGifListItem.tgp-failed > a::after {
   opacity: 1;
   align-items: center;
   font-size: 12px;
-  background: rgba(176, 32, 32, 0.72);
+  background: rgba(176, 32, 32, 0.75);
 }
 
 html[data-tenor-picker] .UniversalGifListItem.tgp-busy > a::after {
@@ -251,7 +251,7 @@ html[data-tenor-picker] .UniversalGifListItem.tgp-busy > a::after {
   opacity: 1;
   align-items: center;
   font-size: 18px;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.45);
 }
 
 @keyframes tgp-pop {
@@ -266,41 +266,82 @@ html[data-tenor-picker] .UniversalGifListItem.tgp-busy > a::after {
 }
 
 /* ========================================================================== */
-/* Dark mode.                                                                  */
-/* tenor.com is light-only — verified: zero prefers-color-scheme, zero .dark   */
-/* in their stylesheet. Because the allow-list has already stripped their      */
-/* chrome, the remaining surface is a background, image tiles and a scrollbar, */
-/* so theming it costs about ten declarations.                                 */
+/* Favourite star.                                                            */
+/*                                                                            */
+/* Injected as a SIBLING of the tile's anchor, never inside it, which is what  */
+/* makes clicking the star incapable of also copying or sending the GIF — the  */
+/* anchor is simply not on the event path.                                     */
 /* ========================================================================== */
 
-@media (prefers-color-scheme: dark) {
-  html[data-tenor-picker],
-  html[data-tenor-picker] body {
-    background: #1e1f22 !important;
-    color: #dbdee1 !important;
+html[data-tenor-picker] .tgp-star {
+  position: absolute;
+  top: 7px;
+  left: 6px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  z-index: 3;
+  background-color: rgba(0, 0, 0, 0.55);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 15px 15px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.4l2.65 5.5 6 .88-4.33 4.24 1.02 6.02L12 17.2l-5.34 2.84 1.02-6.02L3.35 9.78l6-.88z'/%3E%3C/svg%3E");
+  opacity: 0;
+  transform: scale(0.9);
+  transition:
+    opacity 110ms ease-out,
+    transform 110ms ease-out,
+    background-color 110ms ease-out;
+}
+
+html[data-tenor-picker] .UniversalGifListItem:hover .tgp-star {
+  opacity: 1;
+  transform: scale(1);
+}
+
+html[data-tenor-picker] .tgp-star:hover {
+  background-color: rgba(0, 0, 0, 0.78);
+  transform: scale(1.09);
+}
+
+html[data-tenor-picker] .tgp-star:focus-visible {
+  outline: 2px solid #5865f2;
+  outline-offset: 2px;
+  opacity: 1;
+}
+
+/* Favourited stars stay visible, so the state is readable without hovering. */
+html[data-tenor-picker] .tgp-star.tgp-star--on {
+  opacity: 1;
+  transform: scale(1);
+  background-color: rgba(0, 0, 0, 0.62);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23f0b232' stroke='%23f0b232' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.4l2.65 5.5 6 .88-4.33 4.24 1.02 6.02L12 17.2l-5.34 2.84 1.02-6.02L3.35 9.78l6-.88z'/%3E%3C/svg%3E");
+}
+
+html[data-tenor-picker] .tgp-star.tgp-star--pop {
+  animation: tgp-star-pop 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes tgp-star-pop {
+  0% {
+    transform: scale(1);
   }
-  html[data-tenor-picker] {
-    scrollbar-color: rgba(255, 255, 255, 0.24) transparent;
+  45% {
+    transform: scale(1.32);
   }
-  html[data-tenor-picker]::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.22);
-    background-clip: content-box;
-  }
-  html[data-tenor-picker]::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.34);
-    background-clip: content-box;
-  }
-  html[data-tenor-picker] .TagList a {
-    color: #b5bac1 !important;
-  }
-  html[data-tenor-picker] .UniversalGifListItem > a {
-    background: #2b2d31;
+  100% {
+    transform: scale(1);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   html[data-tenor-picker] .UniversalGifListItem > a,
-  html[data-tenor-picker] .UniversalGifListItem > a::after {
+  html[data-tenor-picker] .UniversalGifListItem > a::after,
+  html[data-tenor-picker] .tgp-star {
     transition-duration: 1ms !important;
     animation: none !important;
   }

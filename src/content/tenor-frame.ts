@@ -2,12 +2,17 @@
  * Runs inside the tenor.com document, at document_start, in every frame.
  *
  * This is where the product's actual stipulation happens: a click on a result
- * becomes a clipboard write instead of a navigation.
+ * becomes a clipboard write instead of a navigation. It also injects the
+ * favourite stars and reports readiness/health back to the picker.
  */
 
 import {
   COPY_PENDING_MS,
   FRAME_ATTR,
+  RESULT_POLL_INTERVAL_MS,
+  RESULT_POLL_TIMEOUT_MS,
+  STAR_CLASS,
+  STAR_ON_CLASS,
   TILE_BUSY_CLASS,
   TILE_COPIED_CLASS,
   TILE_FAILED_CLASS,
@@ -15,6 +20,7 @@ import {
 } from '../shared/constants.js';
 import { copyText } from '../shared/clipboard.js';
 import { decideClickAction } from '../shared/click-action.js';
+import { loadFavourites, toggleFavourite, watchFavourites } from '../shared/favourites.js';
 import {
   assertNever,
   type FrameMessage,
@@ -52,9 +58,9 @@ function isPickerFrame(): boolean {
   const immediateParent = ancestors.item(0);
   if (!immediateParent) return false;
 
-  // A web page cannot create a chrome-extension:// parent frame, so this
-  // cannot be spoofed by a hostile site — and we additionally require that it
-  // be OUR extension rather than merely some extension.
+  // A web page cannot create a chrome-extension:// parent frame, so this cannot
+  // be spoofed by a hostile site — and we additionally require that it be OUR
+  // extension rather than merely some extension.
   const ours = extensionOrigin();
   return ours !== null && immediateParent === ours;
 }
@@ -62,12 +68,11 @@ function isPickerFrame(): boolean {
 /**
  * Scope the manifest-declared stylesheet to this frame.
  *
- * `tenor-frame.css` is declared in the manifest so that it lands before first
- * paint (an `insertCSS` later produces a visible flash of un-surgered tenor),
- * but that also means it is delivered on normal tenor.com browsing. Every rule
- * in it is gated on `html[data-tenor-picker]`, so it does nothing until this
- * attribute appears — and removing the attribute is how health check H2
- * self-heals.
+ * `tenor-frame.css` is declared in the manifest so it lands before first paint
+ * (an `insertCSS` later produces a visible flash of un-surgered tenor), but that
+ * also means it is delivered on normal tenor.com browsing. Every rule in it is
+ * gated on `html[data-tenor-picker]`, so it does nothing until this attribute
+ * appears — and removing the attribute is how health check H2 self-heals.
  */
 function markFrame(): boolean {
   const root = document.documentElement;
@@ -78,7 +83,6 @@ function markFrame(): boolean {
 
 function markFrameWhenReady(): void {
   if (markFrame()) return;
-  // Exceptionally early document_start: <html> does not exist yet.
   const observer = new MutationObserver(() => {
     if (markFrame()) observer.disconnect();
   });
@@ -98,6 +102,94 @@ function send(message: FrameMessage): void {
   } catch {
     /* the service worker may be mid-restart; nothing actionable here */
   }
+}
+
+// ---------------------------------------------------------------------------
+// Favourites
+// ---------------------------------------------------------------------------
+
+let favouriteUrls = new Set<string>();
+
+function tileUrl(tile: Element): string | null {
+  const anchor = tile.querySelector<HTMLAnchorElement>(RESULT_SELECTOR);
+  if (!anchor) return null;
+  return canonicalViewUrl(anchor.getAttribute('href') ?? '', location.href);
+}
+
+function tileThumb(tile: Element): string | null {
+  const img = tile.querySelector('img');
+  // getAttribute('src') rather than currentSrc: tenor's <picture> can resolve
+  // to an .mp4 source, which would not render in the favourites panel's <img>.
+  const raw = img?.getAttribute('src');
+  return raw ? (safeUrl(raw, location.href)?.href ?? null) : null;
+}
+
+function syncStarState(star: HTMLElement, url: string): void {
+  const on = favouriteUrls.has(url);
+  star.classList.toggle(STAR_ON_CLASS, on);
+  star.setAttribute('aria-pressed', on ? 'true' : 'false');
+  star.setAttribute('aria-label', on ? 'Remove from favourites' : 'Add to favourites');
+  star.title = on ? 'Remove from favourites' : 'Add to favourites';
+}
+
+function syncAllStars(): void {
+  for (const star of document.querySelectorAll<HTMLElement>(`.${STAR_CLASS}`)) {
+    const url = star.dataset['url'];
+    if (url) syncStarState(star, url);
+  }
+}
+
+/**
+ * Inject a star into every result tile that lacks one.
+ *
+ * The button is appended to the <figure>, i.e. as a SIBLING of the tile's
+ * anchor rather than inside it. That is what makes clicking the star incapable
+ * of also triggering the GIF — the anchor is simply not on the event path.
+ * Promoted/ad tiles get no star, because they have no /view/ link.
+ */
+function ensureStars(root: ParentNode = document): void {
+  for (const tile of root.querySelectorAll<HTMLElement>(TILE_SELECTOR)) {
+    if (tile.querySelector(`.${STAR_CLASS}`)) continue;
+    const url = tileUrl(tile);
+    if (!url) continue;
+
+    const star = document.createElement('button');
+    star.className = STAR_CLASS;
+    star.type = 'button';
+    star.dataset['url'] = url;
+    star.setAttribute('tabindex', '-1');
+    syncStarState(star, url);
+    tile.appendChild(star);
+  }
+}
+
+function starFromEvent(event: Event): HTMLElement | null {
+  for (const node of event.composedPath()) {
+    const element = node as HTMLElement | null;
+    if (!element || element.nodeType !== 1) continue;
+    if (element.classList?.contains(STAR_CLASS)) return element;
+  }
+  return null;
+}
+
+async function handleStarClick(star: HTMLElement): Promise<void> {
+  const url = star.dataset['url'];
+  if (!url) return;
+  const tile = star.closest<HTMLElement>(TILE_SELECTOR);
+
+  const on = await toggleFavourite({
+    url,
+    thumb: tile ? tileThumb(tile) : null,
+    alt: tile?.querySelector('img')?.getAttribute('alt') ?? null,
+    addedAt: Date.now(),
+  });
+
+  if (on) favouriteUrls.add(url);
+  else favouriteUrls.delete(url);
+  syncStarState(star, url);
+  star.classList.remove('tgp-star--pop');
+  void star.offsetWidth;
+  star.classList.add('tgp-star--pop');
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +244,16 @@ async function handleResultClick(url: string, anchor: HTMLAnchorElement): Promis
 }
 
 function onActivate(event: MouseEvent): void {
+  // The star is checked first and swallows the event entirely, so favouriting
+  // can never also copy or send the GIF.
+  const star = starFromEvent(event);
+  if (star) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void handleStarClick(star);
+    return;
+  }
+
   const anchor = closestAnchor(event);
   if (!anchor) return;
 
@@ -166,16 +268,12 @@ function onActivate(event: MouseEvent): void {
   switch (action.kind) {
     case 'copy':
       // Deliberately unconditional: plain, modified and middle clicks all copy.
-      // The escape hatch is right-click -> "Copy link address", which we leave
-      // completely untouched.
+      // The escape hatch is right-click -> "Copy link address", untouched.
       event.preventDefault();
       event.stopImmediatePropagation();
       void handleResultClick(action.url, anchor);
       return;
     case 'search':
-      // Tenor's own related-tag chips. Blanket-blocking them would break 74% of
-      // the page; ignoring them would let the frame drift out of sync with our
-      // search box. So relay the query and let the picker drive.
       event.preventDefault();
       event.stopImmediatePropagation();
       send({ type: 'frame:search-chip', query: action.query });
@@ -207,8 +305,8 @@ function onDragStart(event: DragEvent): void {
 function onKeyDown(event: KeyboardEvent): void {
   if (event.key === 'Escape') {
     // Focus is inside a cross-origin frame, so the parent document never sees
-    // this keydown. Without the relay, Esc silently stops working the moment
-    // the user clicks anything in the grid — i.e. always.
+    // this keydown. Without the relay, Esc silently stops working the moment the
+    // user clicks anything in the grid — i.e. always.
     event.preventDefault();
     event.stopImmediatePropagation();
     send({ type: 'frame:dismiss' });
@@ -234,13 +332,13 @@ function readRelease(): string | null {
   return safeUrl(raw, location.href)?.searchParams.get('release') ?? null;
 }
 
-function runHealthChecks(): HealthReport {
+function runHealthChecks(options: { selfHeal: boolean }): HealthReport {
   const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>(RESULT_SELECTOR));
   const resultCount = anchors.length;
 
   // H2 measures a client RECT rather than counting nodes. That is the whole
-  // point: it is what distinguishes "tenor returned nothing" from "results
-  // exist and we accidentally hid them". A naive single check conflates them.
+  // point: it distinguishes "tenor returned nothing" from "results exist and we
+  // accidentally hid them". A naive single check conflates them.
   const visibleResults = anchors.filter((anchor) => {
     const rect = anchor.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
@@ -259,31 +357,70 @@ function runHealthChecks(): HealthReport {
     status = 'structure-drift'; // H3
   }
 
-  if (status === 'degraded') {
-    // Self-heal. An ugly picker showing real GIFs beats a beautiful empty one.
+  // Only ever self-heal on the FINAL determination. During polling a zero rect
+  // usually just means tenor's masonry has not laid out yet, and ripping out our
+  // stylesheet then would be a spectacular over-reaction.
+  if (status === 'degraded' && options.selfHeal) {
+    // An ugly picker showing real GIFs beats a beautiful empty one.
     document.documentElement.removeAttribute(FRAME_ATTR);
   }
 
   return { resultCount, visibleResults, baseAppChildren, columns, release: readRelease(), status };
 }
 
-function reportReady(): void {
-  const health = runHealthChecks();
-  send({ type: 'frame:ready', health, query: parseSearchSlug(location.pathname) });
+/**
+ * Poll until the grid is actually laid out before reporting readiness.
+ *
+ * Sampling once was the cause of the spurious "No GIFs found" flash: tenor
+ * server-renders the anchors, then its masonry moves them into column
+ * containers, so an early read can legitimately see zero results or zero
+ * client rects.
+ */
+function pollUntilReady(): void {
+  const started = Date.now();
+
+  const attempt = (): void => {
+    const health = runHealthChecks({ selfHeal: false });
+    const settled = health.resultCount > 0 && health.visibleResults > 0;
+
+    if (settled) {
+      ensureStars();
+      send({ type: 'frame:ready', health, query: parseSearchSlug(location.pathname) });
+      return;
+    }
+
+    if (Date.now() - started >= RESULT_POLL_TIMEOUT_MS) {
+      const final = runHealthChecks({ selfHeal: true });
+      send({ type: 'frame:ready', health: final, query: parseSearchSlug(location.pathname) });
+      return;
+    }
+
+    window.setTimeout(attempt, RESULT_POLL_INTERVAL_MS);
+  };
+
+  attempt();
 }
 
-function watchForDrift(): void {
+/**
+ * Watch the grid for tenor's own re-renders (client-side routing, infinite
+ * scroll) so stars are re-injected and a late-arriving result set can rescue a
+ * picker that already showed "no results".
+ */
+function watchGrid(): void {
   let timer: number | null = null;
+
   const recheck = (): void => {
+    ensureStars();
     if (timer !== null) window.clearTimeout(timer);
     timer = window.setTimeout(() => {
       timer = null;
-      send({ type: 'frame:health', health: runHealthChecks() });
-    }, 400);
+      send({ type: 'frame:health', health: runHealthChecks({ selfHeal: false }) });
+    }, 250);
   };
-  const list = document.querySelector('.UniversalGifList') ?? document.body;
-  if (!list) return;
-  new MutationObserver(recheck).observe(list, { childList: true, subtree: false });
+
+  const target = document.querySelector('.UniversalGifList') ?? document.body;
+  if (!target) return;
+  new MutationObserver(recheck).observe(target, { childList: true, subtree: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -306,17 +443,21 @@ if (isPickerFrame()) {
   document.addEventListener('dragstart', onDragStart, true);
   document.addEventListener('keydown', onKeyDown, true);
 
+  watchFavourites((list) => {
+    favouriteUrls = new Set(list.map((item) => item.url));
+    syncAllStars();
+  });
+
   const boot = (): void => {
-    // Let layout settle before measuring client rects for H2.
-    requestAnimationFrame(() => {
-      window.setTimeout(() => {
-        reportReady();
-        watchForDrift();
-      }, 60);
+    void loadFavourites().then((list) => {
+      favouriteUrls = new Set(list.map((item) => item.url));
+      ensureStars();
+      syncAllStars();
     });
+    pollUntilReady();
+    watchGrid();
   };
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') boot();
   else document.addEventListener('DOMContentLoaded', boot, { once: true });
-  window.addEventListener('load', () => send({ type: 'frame:health', health: runHealthChecks() }));
 }

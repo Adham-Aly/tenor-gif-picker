@@ -25,6 +25,10 @@ export const TILE_COPIED_CLASS = 'tgp-copied';
 export const TILE_FAILED_CLASS = 'tgp-failed';
 export const TILE_BUSY_CLASS = 'tgp-busy';
 
+/** Favourite star injected into each result tile. */
+export const STAR_CLASS = 'tgp-star';
+export const STAR_ON_CLASS = 'tgp-star--on';
+
 /** Long-lived port name: picker frame <-> service worker. */
 export const PICKER_PORT = 'tenor-gif-picker';
 
@@ -64,10 +68,20 @@ export const OPEN_ANIM_MS = 140;
 export const CLOSE_ANIM_MS = 100;
 export const REDUCED_MOTION_MS = 100;
 
-/** No `frame:ready` within this window => the frame is blocked/broken. */
-export const FRAME_READY_TIMEOUT_MS = 3000;
-export const FRAME_SLOW_MS = 3000;
-export const FRAME_VERY_SLOW_MS = 8000;
+export const FRAME_SLOW_MS = 4000;
+export const FRAME_VERY_SLOW_MS = 12000;
+
+/**
+ * Readiness polling inside the tenor frame.
+ *
+ * Sampling the grid once was the cause of the spurious "No GIFs found" flash:
+ * tenor server-renders the anchors but its masonry distributes them into
+ * columns afterwards, so a single early read can legitimately see zero results
+ * or zero client rects. We poll until results are actually laid out and only
+ * declare "empty" after the whole window has elapsed.
+ */
+export const RESULT_POLL_INTERVAL_MS = 120;
+export const RESULT_POLL_TIMEOUT_MS = 8000;
 
 /** If the clipboard write has not resolved by this point, show a spinner. */
 export const COPY_PENDING_MS = 250;
@@ -79,11 +93,13 @@ export const TOAST_ERROR_MS = 4000;
 export const STORAGE_KEYS = {
   size: 'picker.size',
   recents: 'picker.recents',
+  favourites: 'picker.favourites',
   health: 'picker.lastHealth',
   settings: 'picker.settings',
 } as const;
 
 export const MAX_RECENTS = 8;
+export const MAX_FAVOURITES = 250;
 
 /** Suggestion chips shown on the idle surface before the first search. */
 export const SUGGESTED_QUERIES = [

@@ -1,14 +1,14 @@
 /**
  * Host-page overlay.
  *
- * Injected on demand via `activeTab` (never a static <all_urls> content script,
- * which is what keeps the install prompt to "your data on tenor.com" instead of
- * "all your data on all websites").
+ * Owns a closed shadow root containing one iframe pointing at our own extension
+ * page. It deliberately holds no product logic — that lives inside picker.html,
+ * in a document we control, where the host page's CSS, its Trusted Types policy
+ * and its JS cannot reach it.
  *
- * Its whole job is to own a closed shadow root containing one iframe pointing
- * at our own extension page. It deliberately holds no product logic — all of
- * that lives inside picker.html, in a document we control, where the host
- * page's CSS, its Trusted Types policy and its JS cannot reach it.
+ * Two things beyond hosting:
+ *   - global hotkeys (Cmd/Ctrl+Alt+/ everywhere, Cmd/Ctrl+G on Discord)
+ *   - delivering a picked GIF into Discord's composer
  */
 
 import {
@@ -28,7 +28,8 @@ import {
   STORAGE_KEYS,
   VIEWPORT_MARGIN,
 } from '../shared/constants.js';
-import { isSwToHostMessage } from '../shared/messages.js';
+import { deliverToDiscord, isDiscord } from '../shared/discord.js';
+import { isSwToHostMessage, type WhoAmIReply } from '../shared/messages.js';
 
 interface Size {
   width: number;
@@ -47,33 +48,31 @@ const SHADOW_CSS = `
   max-height: calc(100vh - ${VIEWPORT_MARGIN}px);
   border-radius: 12px;
   overflow: hidden;
-  background: #ffffff;
-  /* The hairline is not decoration. tenor's page is #fff; a white panel on a
-     white host page with only a shadow reads as a smudge rather than a surface. */
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24), 0 2px 8px rgba(0, 0, 0, 0.12);
+  /* Opaque, always. A translucent panel is what lets page content appear to
+     bleed through, and this sits above everything so it must be solid. */
+  background: #131417;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow:
+    0 16px 44px rgba(0, 0, 0, 0.62),
+    0 3px 10px rgba(0, 0, 0, 0.45);
   transform-origin: bottom right;
-  transform: scale(0.96) translateY(8px);
   opacity: 0;
   transition:
     transform ${OPEN_ANIM_MS}ms cubic-bezier(0.16, 1, 0.3, 1),
     opacity ${OPEN_ANIM_MS}ms cubic-bezier(0.16, 1, 0.3, 1);
-  contain: layout paint style;
+  /* translateZ forces GPU rasterisation, which makes Chrome clip the iframe's
+     square corners to this radius reliably. */
+  transform: translateZ(0) scale(0.96) translateY(8px);
   isolation: isolate;
-  color-scheme: light;
+  color-scheme: dark;
 }
-.wrap.is-open { transform: none; opacity: 1; }
+.wrap.is-open { transform: translateZ(0); opacity: 1; }
 .wrap.is-closing {
   transition-duration: ${CLOSE_ANIM_MS}ms;
   transition-timing-function: ease-in;
-  transform: scale(0.98) translateY(4px);
+  transform: translateZ(0) scale(0.98) translateY(4px);
   opacity: 0;
 }
-/* Forcing GPU rasterisation makes Chrome clip the iframe's square corners to
-   the wrapper's radius reliably; without it you get faint corner artefacts. */
-.wrap { transform: translateZ(0) scale(0.96) translateY(8px); }
-.wrap.is-open { transform: translateZ(0); }
-.wrap.is-closing { transform: translateZ(0) scale(0.98) translateY(4px); }
 
 iframe {
   /* display:block matters — an inline-level iframe inherits the line box and
@@ -82,8 +81,10 @@ iframe {
   width: 100%;
   height: 100%;
   border: 0;
-  background: transparent;
-  color-scheme: light dark;
+  /* Opaque rather than transparent: if the document inside ever paints late,
+     the gap shows our surface colour instead of the page behind. */
+  background: #131417;
+  color-scheme: dark;
 }
 
 .grip {
@@ -104,29 +105,16 @@ iframe {
   top: 5px;
   width: 7px;
   height: 7px;
-  border-left: 2px solid rgba(0, 0, 0, 0.22);
-  border-top: 2px solid rgba(0, 0, 0, 0.22);
+  border-left: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid rgba(255, 255, 255, 0.3);
   border-radius: 2px 0 0 0;
   opacity: 0;
   transition: opacity 120ms ease-out;
 }
 .wrap:hover .grip::before { opacity: 1; }
 
-@media (prefers-color-scheme: dark) {
-  .wrap {
-    background: #1e1f22;
-    border-color: rgba(255, 255, 255, 0.09);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
-    color-scheme: dark;
-  }
-  .grip::before { border-color: rgba(255, 255, 255, 0.28); }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .wrap {
-    transition: opacity 100ms linear;
-    transform: translateZ(0);
-  }
+  .wrap { transition: opacity 100ms linear; transform: translateZ(0); }
   .wrap.is-open { transform: translateZ(0); }
   .wrap.is-closing { transform: translateZ(0); }
 }
@@ -134,14 +122,14 @@ iframe {
 
 function install(): void {
   let hostEl: HTMLElement | null = null;
-  let shadow: ShadowRoot | null = null;
   let wrap: HTMLElement | null = null;
-  let frame: HTMLIFrameElement | null = null;
   let previouslyFocused: HTMLElement | null = null;
   let reattachObserver: MutationObserver | null = null;
   let closeTimer: number | null = null;
   let size: Size = { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+  let cachedTabId: number | null = null;
 
+  const onDiscord = isDiscord();
   const isOpen = (): boolean => hostEl !== null;
 
   // -------------------------------------------------------------------------
@@ -241,9 +229,9 @@ function install(): void {
   const onPointerDown = (event: PointerEvent): void => {
     if (!hostEl) return;
     // composedPath() is required: without it the shadow root's contents read as
-    // "outside" and the picker closes when you click its own chrome.
-    // Capture phase, because a host page that stopPropagation()s pointer events
-    // must not be able to trap us.
+    // "outside" and the picker closes when you click its own chrome. Capture
+    // phase, because a host page that stopPropagation()s pointer events must
+    // not be able to trap us.
     if (event.composedPath().includes(hostEl)) return;
     close();
   };
@@ -275,20 +263,43 @@ function install(): void {
   // Open / close
   // -------------------------------------------------------------------------
 
-  function buildDom(tabId: number): void {
+  function buildDom(tabId: number | null): void {
     // Everything here uses createElement + property assignment. No innerHTML:
     // pages like mail.google.com ship `require-trusted-types-for 'script'`,
     // which is enforced per-document and applies to isolated worlds too.
     const host = document.createElement('div');
     host.id = HOST_ELEMENT_ID;
-    // Inline !important beats any page stylesheet trying to reach our host.
+
+    // The popover attribute promotes this element into the browser's TOP LAYER,
+    // which paints above every other element on the page regardless of z-index
+    // or stacking context. That is the only way to be genuinely un-coverable;
+    // z-index alone loses to any page element that also uses the maximum value
+    // and appears later in the DOM.
+    host.setAttribute('popover', 'manual');
+
+    // `all: initial` first (kills any page rule that might reach this element,
+    // including a `transform` that would break position:fixed for descendants),
+    // then the specific overrides, which win because they come later.
     host.style.setProperty('all', 'initial', 'important');
     host.style.setProperty('position', 'fixed', 'important');
     host.style.setProperty('top', '0', 'important');
     host.style.setProperty('left', '0', 'important');
+    // The UA stylesheet gives an open popover `inset: 0`, which would otherwise
+    // fight the zero-size box we want here.
+    host.style.setProperty('right', 'auto', 'important');
+    host.style.setProperty('bottom', 'auto', 'important');
     host.style.setProperty('width', '0', 'important');
     host.style.setProperty('height', '0', 'important');
+    host.style.setProperty('max-width', 'none', 'important');
+    host.style.setProperty('max-height', 'none', 'important');
+    host.style.setProperty('margin', '0', 'important');
+    host.style.setProperty('padding', '0', 'important');
+    host.style.setProperty('border', '0', 'important');
+    host.style.setProperty('background', 'transparent', 'important');
+    host.style.setProperty('overflow', 'visible', 'important');
     host.style.setProperty('z-index', '2147483647', 'important');
+    host.style.setProperty('color-scheme', 'dark', 'important');
+    host.style.setProperty('pointer-events', 'none', 'important');
 
     const root = host.attachShadow({ mode: 'closed' });
 
@@ -298,16 +309,19 @@ function install(): void {
 
     const panel = document.createElement('div');
     panel.className = 'wrap';
+    // The 0x0 host ignores pointer events so it cannot swallow clicks meant for
+    // the page; the panel itself takes them back.
+    panel.style.setProperty('pointer-events', 'auto');
 
     const iframe = document.createElement('iframe');
-    // NEVER loading="lazy". Lazy loading short-circuits before the frame's
-    // load request is attributed to our isolated world, which forfeits the
-    // CSP bypass and breaks the picker on strict-CSP sites only — a miserable
-    // bug to reproduce.
+    // NEVER loading="lazy". Lazy loading short-circuits before the frame's load
+    // request is attributed to our isolated world, which forfeits the CSP bypass
+    // and breaks the picker on strict-CSP sites only — a miserable bug to find.
     iframe.setAttribute('allow', 'clipboard-write');
     iframe.setAttribute('referrerpolicy', 'no-referrer');
     iframe.setAttribute('title', 'Tenor GIF picker');
-    iframe.src = `${chrome.runtime.getURL('picker.html')}?tabId=${String(tabId)}`;
+    const query = tabId === null ? '' : `?tabId=${String(tabId)}`;
+    iframe.src = `${chrome.runtime.getURL('picker.html')}${query}`;
 
     const grip = document.createElement('div');
     grip.className = 'grip';
@@ -319,12 +333,20 @@ function install(): void {
     root.appendChild(panel);
 
     hostEl = host;
-    shadow = root;
     wrap = panel;
-    frame = iframe;
   }
 
-  function open(tabId: number): void {
+  function promoteToTopLayer(host: HTMLElement): void {
+    try {
+      const candidate = host as HTMLElement & { showPopover?: () => void };
+      if (typeof candidate.showPopover === 'function') candidate.showPopover();
+    } catch {
+      // Older Chromium without the popover API: the max z-index above is the
+      // fallback, which is what we had before and is usually enough.
+    }
+  }
+
+  async function open(tabId: number | null): Promise<void> {
     if (isOpen()) return;
     if (closeTimer !== null) {
       clearTimeout(closeTimer);
@@ -333,29 +355,32 @@ function install(): void {
 
     previouslyFocused = document.activeElement as HTMLElement | null;
 
-    void loadSize().then(() => {
-      buildDom(tabId);
-      if (!hostEl || !wrap) return;
+    await loadSize();
+    buildDom(tabId ?? (await getTabId()));
+    if (!hostEl || !wrap) return;
 
-      // documentElement, not body: SPA frameworks replace body wholesale, and
-      // an ancestor with transform/filter/contain would capture position:fixed.
-      document.documentElement.appendChild(hostEl);
-      applyGeometry();
+    // documentElement, not body: SPA frameworks replace body wholesale, and an
+    // ancestor with transform/filter/contain would capture position:fixed.
+    document.documentElement.appendChild(hostEl);
+    promoteToTopLayer(hostEl);
+    applyGeometry();
 
-      // Force a style flush so the entry transition actually runs.
-      void wrap.getBoundingClientRect();
-      wrap.classList.add('is-open');
+    // Force a style flush so the entry transition actually runs.
+    void wrap.getBoundingClientRect();
+    wrap.classList.add('is-open');
 
-      addDocumentListeners();
+    addDocumentListeners();
 
-      reattachObserver = new MutationObserver(() => {
-        if (hostEl && !hostEl.isConnected) document.documentElement.appendChild(hostEl);
-      });
-      reattachObserver.observe(document.documentElement, { childList: true });
+    reattachObserver = new MutationObserver(() => {
+      if (hostEl && !hostEl.isConnected) {
+        document.documentElement.appendChild(hostEl);
+        promoteToTopLayer(hostEl);
+      }
     });
+    reattachObserver.observe(document.documentElement, { childList: true });
   }
 
-  function close(): void {
+  function close(options: { restoreFocus?: boolean } = {}): void {
     if (!hostEl || !wrap) return;
     const host = hostEl;
     const panel = wrap;
@@ -368,13 +393,17 @@ function install(): void {
     panel.classList.add('is-closing');
 
     hostEl = null;
-    shadow = null;
     wrap = null;
-    frame = null;
 
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     closeTimer = window.setTimeout(
       () => {
+        try {
+          const candidate = host as HTMLElement & { hidePopover?: () => void };
+          if (typeof candidate.hidePopover === 'function') candidate.hidePopover();
+        } catch {
+          /* not in the top layer; removal is enough */
+        }
         host.remove();
         closeTimer = null;
       },
@@ -383,8 +412,10 @@ function install(): void {
 
     // The core loop is copy -> close -> paste. If closing does not put focus
     // back where it was, the paste target is gone and two steps become four.
+    // Skipped after a Discord send, where the composer should keep focus.
     const target = previouslyFocused;
     previouslyFocused = null;
+    if (options.restoreFocus === false) return;
     if (target && typeof target.focus === 'function' && target.isConnected) {
       try {
         target.focus({ preventScroll: true });
@@ -394,21 +425,91 @@ function install(): void {
     }
   }
 
-  function toggle(tabId: number): void {
+  async function toggle(tabId: number | null): Promise<void> {
     if (isOpen()) close();
-    else open(tabId);
+    else await open(tabId);
+  }
+
+  // -------------------------------------------------------------------------
+  // Tab identity
+  // -------------------------------------------------------------------------
+
+  async function getTabId(): Promise<number | null> {
+    if (cachedTabId !== null) return cachedTabId;
+    try {
+      // Typed as `unknown` first: chrome.runtime.sendMessage is `any`, so a
+      // direct assertion would assert nothing and hide a real shape mismatch.
+      const reply: unknown = await chrome.runtime.sendMessage({ type: 'host:whoami' });
+      const reported = (reply as Partial<WhoAmIReply> | null | undefined)?.tabId;
+      if (typeof reported === 'number' && Number.isInteger(reported)) {
+        cachedTabId = reported;
+      }
+    } catch {
+      /* the picker can still resolve its tab from the port sender */
+    }
+    return cachedTabId;
+  }
+
+  // -------------------------------------------------------------------------
+  // Hotkeys
+  // -------------------------------------------------------------------------
+
+  const onHotkey = (event: KeyboardEvent): void => {
+    if (event.repeat) return;
+
+    // Cmd/Ctrl + Alt + /
+    //
+    // `event.code` rather than `event.key`: on macOS, Option+/ produces the
+    // character '÷', so `key` is not '/' at all. `code` is layout-stable.
+    const slash = event.code === 'Slash' || event.key === '/' || event.key === '÷';
+    if (slash && event.altKey && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void toggle(null);
+      return;
+    }
+
+    // Cmd/Ctrl + G, on Discord only.
+    //
+    // Capture phase on `window` fires before any listener Discord registers on
+    // document or on the composer, and preventDefault suppresses their handler
+    // as well as the browser's find-next.
+    if (
+      onDiscord &&
+      event.code === 'KeyG' &&
+      (event.metaKey || event.ctrlKey) &&
+      !event.altKey &&
+      !event.shiftKey
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void toggle(null);
+    }
+  };
+
+  window.addEventListener('keydown', onHotkey, true);
+
+  // -------------------------------------------------------------------------
+  // Delivery
+  // -------------------------------------------------------------------------
+
+  async function deliver(url: string): Promise<void> {
+    if (!onDiscord) return; // elsewhere the clipboard is the delivery mechanism
+    const result = await deliverToDiscord(url);
+    if (result.sent) {
+      // Match Discord's own picker: sending closes it, and focus stays in the
+      // composer so the user can keep typing.
+      close({ restoreFocus: false });
+    }
   }
 
   chrome.runtime.onMessage.addListener((message: unknown) => {
     if (!isSwToHostMessage(message)) return undefined;
-    if (message.type === 'sw:toggle') toggle(message.tabId);
+    if (message.type === 'sw:toggle') void toggle(message.tabId);
     else if (message.type === 'sw:close') close();
+    else if (message.type === 'sw:deliver') void deliver(message.url);
     return undefined;
   });
-
-  // Keep the reference alive for debugging without leaking it to the page.
-  void frame;
-  void shadow;
 }
 
 (() => {

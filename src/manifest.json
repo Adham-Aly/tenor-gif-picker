@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tenor GIF Picker",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A Discord-style Tenor GIF picker in the corner of any page. Click a GIF to copy its link.",
   "minimum_chrome_version": "116",
 
@@ -21,7 +21,7 @@
   },
 
   "action": {
-    "default_title": "Open Tenor GIF picker (Alt+Shift+G)",
+    "default_title": "Open Tenor GIF picker (⌘/Ctrl + Alt + /)",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
@@ -45,6 +45,12 @@
   },
 
   "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["host-overlay.js"],
+      "run_at": "document_end",
+      "all_frames": false
+    },
     {
       "matches": ["*://tenor.com/*", "*://*.tenor.com/*"],
       "js": ["tenor-frame.js"],

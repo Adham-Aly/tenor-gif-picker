@@ -1,10 +1,10 @@
 /**
  * Picker frame — our chrome, our pixels.
  *
- * Owns the search box (rather than surfacing tenor's own), the state machine,
- * and the copy-feedback loop. Search navigates by setting the tenor iframe's
- * `src`; the load is masked by the skeleton plus the opacity gate, so the user
- * never sees an un-surgered tenor page.
+ * Owns the search box, the state machine, the favourites panel and the
+ * copy-feedback loop. Search navigates by setting the tenor iframe's `src`; the
+ * load is masked by the skeleton plus the opacity gate, so the user never sees
+ * an un-surgered tenor page.
  */
 
 import {
@@ -15,9 +15,18 @@ import {
   STORAGE_KEYS,
   SUGGESTED_QUERIES,
   TENOR_ORIGIN,
+  TILE_FEEDBACK_MS,
   TOAST_ERROR_MS,
   TOAST_MS,
 } from '../shared/constants.js';
+import { copyText } from '../shared/clipboard.js';
+import {
+  clearFavourites,
+  loadFavourites,
+  removeFavourite,
+  watchFavourites,
+  type Favourite,
+} from '../shared/favourites.js';
 import {
   assertNever,
   isSwToPickerMessage,
@@ -27,7 +36,7 @@ import {
   type PickerMessage,
   type SwToPickerMessage,
 } from '../shared/messages.js';
-import { buildSearchUrl } from '../shared/urls.js';
+import { buildSearchUrl, slugifyQuery } from '../shared/urls.js';
 
 // ---------------------------------------------------------------------------
 // DOM
@@ -41,14 +50,21 @@ function el<T extends HTMLElement>(id: string): T {
 
 const frame = el<HTMLIFrameElement>('frame');
 const queryInput = el<HTMLInputElement>('query');
+const spinner = el<HTMLSpanElement>('spinner');
 const clearBtn = el<HTMLButtonElement>('clear');
+const favsToggle = el<HTMLButtonElement>('favs-toggle');
 const closeBtn = el<HTMLButtonElement>('close');
+const progress = el<HTMLDivElement>('progress');
 const recentsBlock = el<HTMLDivElement>('recents-block');
 const recentsWrap = el<HTMLDivElement>('recents');
 const clearRecentsBtn = el<HTMLButtonElement>('clear-recents');
 const suggestionsWrap = el<HTMLDivElement>('suggestions');
 const skeleton = el<HTMLDivElement>('skeleton');
 const slowHint = el<HTMLParagraphElement>('slow-hint');
+const loadingLabel = el<HTMLSpanElement>('loading-label');
+const favsGrid = el<HTMLDivElement>('favs-grid');
+const favsEmpty = el<HTMLDivElement>('favs-empty');
+const clearFavsBtn = el<HTMLButtonElement>('clear-favs');
 const emptyBody = el<HTMLParagraphElement>('empty-body');
 const emptyChips = el<HTMLDivElement>('empty-chips');
 const errorBody = el<HTMLParagraphElement>('error-body');
@@ -65,23 +81,29 @@ const toast = el<HTMLDivElement>('toast');
 const panes = {
   idle: el<HTMLElement>('pane-idle'),
   loading: el<HTMLElement>('pane-loading'),
+  favs: el<HTMLElement>('pane-favs'),
   empty: el<HTMLElement>('pane-empty'),
   error: el<HTMLElement>('pane-error'),
   offline: el<HTMLElement>('pane-offline'),
 };
 
-type View = 'idle' | 'loading' | 'ready' | 'empty' | 'error' | 'offline';
+type View = 'idle' | 'loading' | 'ready' | 'favs' | 'empty' | 'error' | 'offline';
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
-const tabId = Number.parseInt(new URLSearchParams(location.search).get('tabId') ?? '', 10);
+const rawTabId = Number.parseInt(new URLSearchParams(location.search).get('tabId') ?? '', 10);
+const tabId = Number.isInteger(rawTabId) ? rawTabId : -1;
 
 let port: chrome.runtime.Port | null = null;
 let reconnectAttempts = 0;
 let currentQuery = '';
+let view: View = 'idle';
+/** The view to return to when leaving the favourites panel. */
+let viewBeforeFavs: View = 'idle';
 let recents: string[] = [];
+let favourites: Favourite[] = [];
 
 let slowTimer: number | null = null;
 let blockedTimer: number | null = null;
@@ -159,9 +181,9 @@ function request(
 /**
  * Arm the XFO strip and WAIT for the ack before navigating.
  *
- * Called before every navigation, not just the first: if `src` is set before
- * the rule exists the navigation races it and the frame is blocked with no
- * obvious cause. Re-arming is idempotent on the service worker side.
+ * Called before every navigation, not just the first: if `src` is set before the
+ * rule exists the navigation races it and the frame is blocked with no obvious
+ * cause. Re-arming is idempotent on the service worker side.
  */
 async function ensureArmed(): Promise<boolean> {
   if (!port) connect();
@@ -173,13 +195,23 @@ async function ensureArmed(): Promise<boolean> {
 // Views
 // ---------------------------------------------------------------------------
 
+function setBusy(busy: boolean, label = 'Searching Tenor…'): void {
+  progress.hidden = !busy;
+  spinner.hidden = !busy;
+  loadingLabel.textContent = label;
+}
+
 function setView(next: View): void {
+  view = next;
   const framed = next === 'ready';
   frame.classList.toggle('is-visible', framed);
   for (const [name, node] of Object.entries(panes)) {
     node.hidden = name !== next;
   }
   if (next !== 'loading') slowHint.hidden = true;
+  setBusy(next === 'loading');
+  favsToggle.setAttribute('aria-pressed', next === 'favs' ? 'true' : 'false');
+  favsToggle.setAttribute('aria-label', next === 'favs' ? 'Back to search' : 'Show favourites');
 }
 
 function clearTimers(): void {
@@ -248,7 +280,6 @@ function hideManualCopy(): void {
 // Skeleton
 // ---------------------------------------------------------------------------
 
-/** Plausible varied tile heights, so the loading state looks like the content. */
 const SKELETON_HEIGHTS = [
   [150, 210, 130, 190, 160],
   [190, 140, 200, 150, 180],
@@ -320,8 +351,105 @@ function renderIdle(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Favourites
+// ---------------------------------------------------------------------------
+
+function renderFavourites(): void {
+  favsGrid.replaceChildren();
+
+  for (const favourite of favourites) {
+    const tile = document.createElement('div');
+    tile.className = 'fav';
+    tile.dataset['label'] = 'Click to copy link';
+
+    const hit = document.createElement('button');
+    hit.type = 'button';
+    hit.className = 'fav__hit';
+    hit.setAttribute('aria-label', favourite.alt ?? 'Use this GIF');
+
+    const image = document.createElement('img');
+    image.src = favourite.thumb ?? '';
+    image.alt = favourite.alt ?? '';
+    image.loading = 'lazy';
+    // A saved thumbnail can 404 later; fall back to a labelled placeholder
+    // rather than a broken-image icon.
+    image.addEventListener('error', () => {
+      image.remove();
+      hit.textContent = favourite.url.replace(`${TENOR_ORIGIN}/view/`, '');
+      hit.style.padding = '18px 10px';
+      hit.style.lineHeight = '1.3';
+      hit.style.fontSize = '11px';
+      hit.style.color = 'var(--muted)';
+      hit.style.wordBreak = 'break-word';
+    });
+
+    hit.appendChild(image);
+    hit.addEventListener('click', () => void useGif(favourite.url, tile));
+
+    const star = document.createElement('button');
+    star.type = 'button';
+    star.className = 'fav__star';
+    star.setAttribute('aria-label', 'Remove from favourites');
+    star.title = 'Remove from favourites';
+    star.addEventListener('click', (event) => {
+      // Never let un-favouriting also use the GIF.
+      event.preventDefault();
+      event.stopPropagation();
+      void removeFavourite(favourite.url);
+    });
+
+    tile.appendChild(hit);
+    tile.appendChild(star);
+    favsGrid.appendChild(tile);
+  }
+
+  favsEmpty.hidden = favourites.length > 0;
+  clearFavsBtn.hidden = favourites.length === 0;
+}
+
+function toggleFavouritesView(): void {
+  if (view === 'favs') {
+    setView(viewBeforeFavs === 'favs' ? 'idle' : viewBeforeFavs);
+    return;
+  }
+  viewBeforeFavs = view;
+  renderFavourites();
+  setView('favs');
+}
+
+// ---------------------------------------------------------------------------
+// Using a GIF from our own panel
+// ---------------------------------------------------------------------------
+
+async function useGif(url: string, tile?: HTMLElement): Promise<void> {
+  const result = await copyText(url);
+
+  if (result.ok) {
+    manualUrl.value = url;
+    showToast('Link copied');
+    if (tile) {
+      tile.classList.add('is-copied');
+      window.setTimeout(() => tile.classList.remove('is-copied'), TILE_FEEDBACK_MS);
+    }
+  } else {
+    await handleCopyFailure(url);
+  }
+
+  // Tells the host page. On Discord this inserts the link into the composer and
+  // sends it; everywhere else the clipboard is the delivery mechanism and this
+  // is a no-op.
+  send({ type: 'picker:deliver', url });
+}
+
+// ---------------------------------------------------------------------------
 // Search
 // ---------------------------------------------------------------------------
+
+/** Slug-normalised comparison, so "Happy  Cat" and "happy cat" match. */
+function sameQuery(a: string | null, b: string | null): boolean {
+  if (!a || !b) return true; // nothing to disprove
+  return slugifyQuery(a) === slugifyQuery(b);
+}
 
 async function search(rawQuery: string, options: { remember?: boolean } = {}): Promise<void> {
   const query = rawQuery.trim();
@@ -360,8 +488,9 @@ function updateClearButton(): void {
 // ---------------------------------------------------------------------------
 
 function handleSwMessage(message: SwToPickerMessage): void {
-  for (const [id, resolver] of pendingRequests) {
-    if ('requestId' in message && message.requestId === id) {
+  if ('requestId' in message) {
+    const resolver = pendingRequests.get(message.requestId);
+    if (resolver) {
       resolver(message);
       return;
     }
@@ -384,9 +513,13 @@ function applyHealth(health: HealthReport): void {
 function handleFrameEvent(event: FrameMessage): void {
   switch (event.type) {
     case 'frame:ready': {
+      // Ignore a late report for a search the user has already moved on from.
+      if (!sameQuery(event.query, currentQuery)) return;
+
       clearTimers();
       applyHealth(event.health);
-      if (event.health.status === 'empty') {
+
+      if (event.health.resultCount === 0) {
         emptyBody.textContent = currentQuery
           ? `Nothing matched “${currentQuery}”.`
           : 'Nothing matched that search.';
@@ -395,15 +528,17 @@ function handleFrameEvent(event: FrameMessage): void {
       } else {
         setView('ready');
       }
-      if (event.query && event.query !== currentQuery) {
-        currentQuery = event.query;
-        queryInput.value = event.query;
-        updateClearButton();
-      }
       return;
     }
     case 'frame:health':
       applyHealth(event.health);
+      // Results can arrive after we already concluded there were none — tenor
+      // re-renders its grid on client-side routes and on infinite scroll. Take
+      // the rescue rather than leaving a wrong "No GIFs found" on screen.
+      if (event.health.resultCount > 0 && (view === 'empty' || view === 'loading')) {
+        clearTimers();
+        setView('ready');
+      }
       return;
     case 'frame:copy-pending':
       return;
@@ -496,6 +631,7 @@ clearBtn.addEventListener('click', () => {
   setView('idle');
 });
 
+favsToggle.addEventListener('click', toggleFavouritesView);
 closeBtn.addEventListener('click', close);
 openTabBtn.addEventListener('click', openInTab);
 retryBtn.addEventListener('click', () => void search(currentQuery || 'gif', { remember: false }));
@@ -509,6 +645,8 @@ clearRecentsBtn.addEventListener('click', () => {
   void chrome.storage.local.set({ [STORAGE_KEYS.recents]: [] }).catch(() => undefined);
   renderIdle();
 });
+
+clearFavsBtn.addEventListener('click', () => void clearFavourites());
 
 noticeDismiss.addEventListener('click', () => {
   notice.hidden = true;
@@ -524,11 +662,11 @@ document.addEventListener('keydown', (event) => {
 });
 
 window.addEventListener('online', () => {
-  if (!panes.offline.hidden) void search(currentQuery || 'gif', { remember: false });
+  if (view === 'offline') void search(currentQuery || 'gif', { remember: false });
 });
 
 window.addEventListener('offline', () => {
-  if (frame.classList.contains('is-visible')) return;
+  if (view === 'ready' || view === 'favs') return;
   setView('offline');
 });
 
@@ -540,6 +678,11 @@ window.addEventListener('pageshow', (event) => {
   }
 });
 
+watchFavourites((list) => {
+  favourites = list;
+  if (view === 'favs') renderFavourites();
+});
+
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
@@ -548,5 +691,9 @@ buildSkeleton();
 renderIdle();
 connect();
 void loadRecents();
+void loadFavourites().then((list) => {
+  favourites = list;
+  if (view === 'favs') renderFavourites();
+});
 setView('idle');
 queryInput.focus();

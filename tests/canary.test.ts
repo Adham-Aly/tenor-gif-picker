@@ -48,9 +48,11 @@ describe('Tier A allow-list assumptions', () => {
     expect(document.querySelector('.SearchPage > .gallery-container')).not.toBeNull();
   });
 
-  it('keeps the related-tag rail inside the allow-listed subtree', () => {
-    // We deliberately KEEP these as category chips, so they must survive Tier A.
+  it('still ships the related-query rail our Tier B rule targets', () => {
+    // We hide this rather than remove it. If tenor renames it, the rail would
+    // reappear inside the picker, so the selector is pinned here.
     expect(document.querySelector('.SearchPage .TagList')).not.toBeNull();
+    expect(document.querySelector('.gallery-container > .search')).not.toBeNull();
   });
 });
 

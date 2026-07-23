@@ -11,6 +11,7 @@ import { PICKER_PORT } from '../shared/constants.js';
 import {
   assertNever,
   isFrameMessage,
+  isHostMessage,
   isPickerMessage,
   type FrameMessage,
   type PickerMessage,
@@ -18,7 +19,7 @@ import {
 } from '../shared/messages.js';
 import { canonicalViewUrl, isInjectableUrl, isTenorHost, safeUrl } from '../shared/urls.js';
 
-const DEFAULT_TITLE = 'Open Tenor GIF picker (Alt+Shift+G)';
+const DEFAULT_TITLE = 'Open Tenor GIF picker (⌘/Ctrl + Alt + /)';
 
 /** Session rule ids are allocated from here upward. */
 const RULE_ID_BASE = 9000;
@@ -240,6 +241,20 @@ async function copyViaOffscreen(text: string): Promise<boolean> {
   }
 }
 
+/**
+ * Tell the host page a GIF was picked.
+ *
+ * On Discord the overlay inserts it into the composer and sends it; everywhere
+ * else the clipboard is the delivery mechanism and this is a no-op.
+ */
+async function deliverToHost(tabId: number, url: string): Promise<void> {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'sw:deliver', url }, { frameId: 0 });
+  } catch {
+    /* no overlay listening in that tab */
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Routing
 // ---------------------------------------------------------------------------
@@ -281,6 +296,9 @@ function handleFrameMessage(message: FrameMessage, sender: chrome.runtime.Messag
       const canonical = canonicalViewUrl(message.url);
       if (!canonical) return;
       post(session, { type: 'sw:frame-event', event: { ...message, url: canonical } });
+      // Deliver on the settled outcomes only — not on `pending`, or Discord
+      // would receive the link twice.
+      if (message.type !== 'frame:copy-pending') void deliverToHost(tabId, canonical);
       return;
     }
     case 'frame:ready':
@@ -317,6 +335,11 @@ async function handlePickerMessage(message: PickerMessage, session: Session): Pr
       const target = safeUrl(message.url);
       if (!target || (target.protocol !== 'https:' && target.protocol !== 'http:')) return;
       await chrome.tabs.create({ url: target.href });
+      return;
+    }
+    case 'picker:deliver': {
+      const canonical = canonicalViewUrl(message.url);
+      if (canonical) await deliverToHost(session.tabId, canonical);
       return;
     }
     default:
@@ -360,7 +383,9 @@ chrome.runtime.onConnect.addListener((port) => {
 
     if (raw.type === 'picker:hello') {
       const tabId = pending ?? raw.tabId;
-      if (typeof tabId !== 'number') return;
+      // The picker reports -1 when it could not learn its tab from the URL, in
+      // which case only the browser-asserted sender id is usable.
+      if (!Number.isInteger(tabId) || tabId < 0) return;
       pending = tabId;
       session = ensureSession(tabId);
       void armFraming(tabId);
@@ -382,8 +407,17 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
-chrome.runtime.onMessage.addListener((message: unknown, sender) => {
+chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return undefined;
+
+  if (isHostMessage(message)) {
+    if (message.type === 'host:whoami') {
+      // A content script cannot learn its own tab id; only the browser knows.
+      sendResponse({ tabId: sender.tab?.id ?? null });
+    }
+    return undefined;
+  }
+
   if (isFrameMessage(message)) handleFrameMessage(message, sender);
   return undefined;
 });
