@@ -1,0 +1,541 @@
+/**
+ * Picker chrome.
+ *
+ * This runs in our own extension-origin document, so nothing here has to fight
+ * a host page's stylesheet. A system font stack is used deliberately rather
+ * than fetching Inter to match tenor's type: a webfont is a network dependency
+ * and a CSP surface for a 52px header, and the difference is invisible at this
+ * size.
+ */
+
+:root {
+  --font:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
+    'Apple Color Emoji', 'Segoe UI Emoji';
+
+  --surface: #ffffff;
+  --surface-alt: #f7f8f9;
+  --text: #060607;
+  --muted: #5c5e66;
+  --border: rgba(0, 0, 0, 0.08);
+  --input-bg: #f0f1f3;
+  --input-bg-focus: #e9eaee;
+  --chip-bg: #eff0f3;
+  --chip-bg-hover: #e3e5e9;
+  --accent: #5865f2;
+  --accent-text: #ffffff;
+  --danger: #d83c3e;
+  --skeleton-a: #ececef;
+  --skeleton-b: #f6f6f8;
+  --toast-bg: #17181b;
+  --toast-text: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #1e1f22;
+    --surface-alt: #232428;
+    --text: #f2f3f5;
+    --muted: #b5bac1;
+    --border: rgba(255, 255, 255, 0.08);
+    --input-bg: #2b2d31;
+    --input-bg-focus: #34363c;
+    --chip-bg: #2b2d31;
+    --chip-bg-hover: #3a3d44;
+    --accent: #5865f2;
+    --accent-text: #ffffff;
+    --danger: #f26d6f;
+    --skeleton-a: #2a2c30;
+    --skeleton-b: #33363b;
+    --toast-bg: #f2f3f5;
+    --toast-text: #17181b;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- header -- */
+
+.bar {
+  flex: 0 0 auto;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.search {
+  flex: 1 1 auto;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 8px 0 30px;
+  border-radius: 8px;
+  background: var(--input-bg);
+  transition:
+    background 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+
+.search:focus-within {
+  background: var(--input-bg-focus);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.search__icon {
+  position: absolute;
+  left: 9px;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.search__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  padding: 0;
+}
+
+.search__input::placeholder {
+  color: var(--muted);
+}
+
+.search__clear,
+.iconbtn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    background 100ms ease-out,
+    color 100ms ease-out;
+}
+
+.search__clear {
+  width: 22px;
+  height: 22px;
+}
+
+.search__clear svg,
+.iconbtn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.search__clear:hover,
+.iconbtn:hover {
+  background: var(--chip-bg-hover);
+  color: var(--text);
+}
+
+.iconbtn:focus-visible,
+.search__clear:focus-visible,
+.btn:focus-visible,
+.chip:focus-visible,
+.linkbtn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ body -- */
+
+.body {
+  flex: 1 1 auto;
+  position: relative;
+  min-height: 0;
+  background: var(--surface);
+}
+
+.frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+}
+
+.frame.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pane {
+  position: absolute;
+  inset: 0;
+  background: var(--surface);
+}
+
+.pane--scroll {
+  overflow-y: auto;
+  padding: 14px 14px 18px;
+}
+
+.pane--center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.pane[hidden] {
+  display: none;
+}
+
+.pane__hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 14px;
+  margin: 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------ idle pane -- */
+
+.block {
+  margin-bottom: 18px;
+}
+
+.block__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.block__title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chips--center {
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.chip {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+  color: var(--text);
+  background: var(--chip-bg);
+  cursor: pointer;
+  transition:
+    background 100ms ease-out,
+    transform 60ms ease-out;
+}
+
+.chip:hover {
+  background: var(--chip-bg-hover);
+}
+
+.chip:active {
+  transform: scale(0.97);
+}
+
+.linkbtn {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.linkbtn:hover {
+  color: var(--text);
+}
+
+.hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* -------------------------------------------------------------- skeleton -- */
+
+.skeleton {
+  position: absolute;
+  inset: 0;
+  padding: 10px 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-content: start;
+  overflow: hidden;
+}
+
+.skeleton__col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeleton__tile {
+  border-radius: 6px;
+  background: linear-gradient(
+    100deg,
+    var(--skeleton-a) 20%,
+    var(--skeleton-b) 40%,
+    var(--skeleton-a) 60%
+  );
+  background-size: 220% 100%;
+  animation: tgp-shimmer 1.3s linear infinite;
+}
+
+@keyframes tgp-shimmer {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -40% 0;
+  }
+}
+
+/* ---------------------------------------------------------------- states -- */
+
+.state {
+  text-align: center;
+  max-width: 300px;
+}
+
+.state__emoji {
+  font-size: 30px;
+  line-height: 1;
+  margin-bottom: 10px;
+}
+
+.state__title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.state__body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.state__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.btn {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--text);
+  background: var(--surface-alt);
+  cursor: pointer;
+  transition:
+    background 100ms ease-out,
+    transform 60ms ease-out;
+}
+
+.btn:hover {
+  background: var(--chip-bg-hover);
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn--primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-text);
+}
+
+.btn--primary:hover {
+  filter: brightness(1.08);
+  background: var(--accent);
+}
+
+/* ---------------------------------------------------------------- notice -- */
+
+.notice {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface-alt);
+  border-top: 1px solid var(--border);
+}
+
+.notice[hidden] {
+  display: none;
+}
+
+/* ------------------------------------------------------------ manual copy -- */
+
+.manual {
+  flex: 0 0 auto;
+  padding: 10px 12px 12px;
+  background: var(--surface-alt);
+  border-top: 1px solid var(--border);
+}
+
+.manual[hidden] {
+  display: none;
+}
+
+.manual__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.manual__input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.manual__input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* ----------------------------------------------------------------- toast -- */
+
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translate(-50%, 10px);
+  max-width: calc(100% - 28px);
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--toast-text);
+  background: var(--toast-bg);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 160ms ease-out,
+    transform 160ms ease-out;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 5;
+}
+
+.toast[hidden] {
+  display: none;
+}
+
+.toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.toast.is-error {
+  background: var(--danger);
+  color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .frame,
+  .search,
+  .chip,
+  .btn {
+    transition-duration: 1ms !important;
+  }
+  .skeleton__tile {
+    animation: none;
+  }
+  .toast.is-visible {
+    transform: translate(-50%, 0);
+  }
+}

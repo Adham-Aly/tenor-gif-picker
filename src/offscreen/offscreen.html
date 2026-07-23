@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Tenor GIF Picker clipboard helper</title>
+  </head>
+  <body>
+    <!--
+      Tier 3 of the clipboard ladder. This document exists purely so the service
+      worker has a DOM to run document.execCommand('copy') against.
+
+      It deliberately does NOT use navigator.clipboard: an offscreen document
+      can never be focused, and the async Clipboard API checks
+      document.hasFocus() first, so it always throws here — despite `CLIPBOARD`
+      being the documented reason for creating this document. Chrome's own
+      official sample uses execCommand for exactly this reason.
+    -->
+    <script src="offscreen.js"></script>
+  </body>
+</html>

@@ -1,0 +1,310 @@
+/**
+ * Cosmetic surgery on tenor.com, applied only inside our picker frame.
+ *
+ * SCOPING IS LOAD-BEARING. This file is declared in the manifest so that it is
+ * applied before first paint — which also means the browser delivers it when
+ * the user visits tenor.com normally. Every single rule is therefore gated on
+ * `html[data-tenor-picker]`, an attribute that `tenor-frame.ts` sets only after
+ * its self-arming guard confirms we are inside OUR iframe.
+ *
+ * Removing that attribute disables this entire stylesheet in one step, which is
+ * exactly how health check H2 self-heals when it detects we have hidden the
+ * results: an ugly picker showing real GIFs beats a beautiful empty one.
+ *
+ * The strategy is an ALLOW-LIST, not a deny-list. A deny-list ("hide the nav,
+ * hide the banner, hide the footer") fails OPEN: the day tenor ships a new promo
+ * strip it appears in our 400px panel. An allow-list fails CLOSED.
+ */
+
+/* ========================================================================== */
+/* Surface                                                                    */
+/* ========================================================================== */
+
+html[data-tenor-picker] {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.22) transparent;
+  background: #ffffff !important;
+  overflow-x: hidden !important;
+}
+
+html[data-tenor-picker] body {
+  background: #ffffff !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow-x: hidden !important;
+}
+
+html[data-tenor-picker]::-webkit-scrollbar {
+  width: 10px;
+}
+html[data-tenor-picker]::-webkit-scrollbar-track {
+  background: transparent;
+}
+html[data-tenor-picker]::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+html[data-tenor-picker]::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.32);
+  background-clip: content-box;
+}
+
+/* ========================================================================== */
+/* TIER A — structural allow-list.                                            */
+/* Two selectors remove six of .BaseApp's seven children: the ToS banner, the  */
+/* language banner, the nav container, the top search bar, the progress bar    */
+/* and the dialog host. Only .SearchPage survives.                            */
+/*                                                                            */
+/* Note on the banners: both ship with class `hidden` and are revealed by      */
+/* client logic whose dismissal state lives in tenor's storage. In a           */
+/* third-party frame that storage is partitioned PER TOP-LEVEL SITE, so the    */
+/* frame always looks like a first-ever visitor and the user would otherwise   */
+/* re-dismiss them once per website they use the picker on. They must be       */
+/* hidden proactively; never depend on dismissal state.                        */
+/* ========================================================================== */
+
+html[data-tenor-picker] .BaseApp > *:not(.SearchPage) {
+  display: none !important;
+}
+
+html[data-tenor-picker] .SearchPage > *:not(.gallery-container) {
+  display: none !important;
+}
+
+html[data-tenor-picker] .SearchPage {
+  padding: 8px 6px 10px !important;
+  margin: 0 !important;
+  max-width: none !important;
+  width: auto !important;
+}
+
+html[data-tenor-picker] .gallery-container {
+  padding: 0 !important;
+  margin: 0 !important;
+  width: auto !important;
+  max-width: none !important;
+}
+
+/* ========================================================================== */
+/* TIER B — reclaim vertical space. 400x540 is tight.                         */
+/* The related-tag rail is deliberately KEPT: those chips are the equivalent   */
+/* of Discord's category chips, and tenor-frame.ts routes their clicks back    */
+/* through our own search state so the two can never drift out of sync.        */
+/* ========================================================================== */
+
+html[data-tenor-picker] .gallery-container > h1 {
+  display: none !important; /* just echoes the query we already show */
+}
+
+html[data-tenor-picker] .UniversalSearchFormatToggle {
+  display: none !important; /* GIFs / Stickers / Memes — GIFs only matches the spec */
+}
+
+html[data-tenor-picker] .TagList {
+  margin: 0 0 8px !important;
+  padding: 0 2px !important;
+}
+
+html[data-tenor-picker] .TagList .RelatedTag,
+html[data-tenor-picker] .TagList a {
+  font-size: 12px !important;
+  line-height: 1.6 !important;
+}
+
+/* ========================================================================== */
+/* TIER C — per-tile affordances that would be dead clicks for a signed-out    */
+/* third-party frame.                                                         */
+/* ========================================================================== */
+
+html[data-tenor-picker] .UniversalGifListItem .actions,
+html[data-tenor-picker] .UniversalGifListItem .FavButton,
+html[data-tenor-picker] .UniversalGifListItem .GifFavButton,
+html[data-tenor-picker] .UniversalGifListItem figcaption.tags {
+  display: none !important;
+}
+
+/* ========================================================================== */
+/* TIER D — the important one.                                                */
+/*                                                                            */
+/* tenor injects a promoted "Upload to Tenor" tile INSIDE the grid (one per    */
+/* search page, around data-index 16). It reuses .UniversalGifListItem and is  */
+/* not distinguishable by any stable class — matching `.Card` would break the  */
+/* day they run a different campaign.                                         */
+/*                                                                            */
+/* So match on the invariant that actually DEFINES a result: it links to       */
+/* /view/. This is class-name independent, and removes whatever they inject    */
+/* next (sponsored tiles, upsells, surveys) with no code change.               */
+/*                                                                            */
+/* The same invariant guards the click path, so even with this stylesheet      */
+/* entirely disabled, clicking a promoted tile cannot produce a bogus          */
+/* clipboard write. Belt and braces on one invariant.                          */
+/* ========================================================================== */
+
+html[data-tenor-picker] .UniversalGifListItem:not(:has(a[href^='/view/'])) {
+  display: none !important;
+}
+
+/* ========================================================================== */
+/* Grid polish                                                                */
+/* ========================================================================== */
+
+html[data-tenor-picker] .UniversalGifList {
+  margin: 0 !important;
+}
+
+html[data-tenor-picker] .UniversalGifListItem {
+  margin: 5px 4px !important;
+}
+
+html[data-tenor-picker] .UniversalGifListItem > a {
+  position: relative !important;
+  display: block !important;
+  border-radius: 6px;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html[data-tenor-picker] .UniversalGifListItem > a:focus-visible {
+  outline: 2px solid #5865f2;
+  outline-offset: 2px;
+}
+
+html[data-tenor-picker] .UniversalGifListItem img,
+html[data-tenor-picker] .UniversalGifListItem video {
+  display: block !important;
+  border-radius: 6px;
+}
+
+/* ========================================================================== */
+/* The copy affordance.                                                       */
+/*                                                                            */
+/* The user's mental model, trained by every GIF grid on the internet, is      */
+/* "click -> navigate". We are changing that verb, so it has to be taught —    */
+/* this is not optional polish. It also replaces the fav/share buttons hidden  */
+/* in Tier C, so hover still has an affordance and the tile does not feel      */
+/* dead.                                                                       */
+/* ========================================================================== */
+
+html[data-tenor-picker] .UniversalGifListItem > a::after {
+  content: 'Click to copy link';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 8px 6px;
+  box-sizing: border-box;
+  font:
+    600 11px/1.25 -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  color: #fff;
+  text-align: center;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.74) 0%,
+    rgba(0, 0, 0, 0.28) 45%,
+    rgba(0, 0, 0, 0) 72%
+  );
+  opacity: 0;
+  transition: opacity 100ms ease-out;
+  pointer-events: none;
+  border-radius: 6px;
+}
+
+html[data-tenor-picker] .UniversalGifListItem > a:hover::after {
+  opacity: 1;
+}
+
+html[data-tenor-picker] .UniversalGifListItem > a:active {
+  transform: scale(0.97);
+  transition: transform 60ms ease-out;
+}
+
+/* --- feedback states. Same specificity as :hover, declared after, so they win. --- */
+
+html[data-tenor-picker] .UniversalGifListItem.tgp-copied > a::after {
+  content: '✓  Copied';
+  opacity: 1;
+  align-items: center;
+  font-size: 13px;
+  background: rgba(0, 0, 0, 0.55);
+  animation: tgp-pop 120ms ease-out;
+}
+
+html[data-tenor-picker] .UniversalGifListItem.tgp-failed > a::after {
+  content: "Couldn't copy";
+  opacity: 1;
+  align-items: center;
+  font-size: 12px;
+  background: rgba(176, 32, 32, 0.72);
+}
+
+html[data-tenor-picker] .UniversalGifListItem.tgp-busy > a::after {
+  content: '…';
+  opacity: 1;
+  align-items: center;
+  font-size: 18px;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+@keyframes tgp-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ========================================================================== */
+/* Dark mode.                                                                  */
+/* tenor.com is light-only — verified: zero prefers-color-scheme, zero .dark   */
+/* in their stylesheet. Because the allow-list has already stripped their      */
+/* chrome, the remaining surface is a background, image tiles and a scrollbar, */
+/* so theming it costs about ten declarations.                                 */
+/* ========================================================================== */
+
+@media (prefers-color-scheme: dark) {
+  html[data-tenor-picker],
+  html[data-tenor-picker] body {
+    background: #1e1f22 !important;
+    color: #dbdee1 !important;
+  }
+  html[data-tenor-picker] {
+    scrollbar-color: rgba(255, 255, 255, 0.24) transparent;
+  }
+  html[data-tenor-picker]::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.22);
+    background-clip: content-box;
+  }
+  html[data-tenor-picker]::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.34);
+    background-clip: content-box;
+  }
+  html[data-tenor-picker] .TagList a {
+    color: #b5bac1 !important;
+  }
+  html[data-tenor-picker] .UniversalGifListItem > a {
+    background: #2b2d31;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-tenor-picker] .UniversalGifListItem > a,
+  html[data-tenor-picker] .UniversalGifListItem > a::after {
+    transition-duration: 1ms !important;
+    animation: none !important;
+  }
+  html[data-tenor-picker] .UniversalGifListItem > a:active {
+    transform: none;
+  }
+}
