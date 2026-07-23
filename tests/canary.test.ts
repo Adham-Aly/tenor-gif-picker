@@ -54,6 +54,18 @@ describe('Tier A allow-list assumptions', () => {
     expect(document.querySelector('.SearchPage .TagList')).not.toBeNull();
     expect(document.querySelector('.gallery-container > .search')).not.toBeNull();
   });
+
+  it('the results grid lives INSIDE .gallery-container > .search', () => {
+    // This is the fact that makes the "never hide .search" CSS guard load-bearing:
+    // hiding .search hides the grid. If tenor ever moves the grid OUT of .search,
+    // this fails and we can safely simplify — but until then, .search must stay
+    // visible. `.search`'s children on a search page are the rail, the format
+    // toggle, and the grid itself.
+    const searchWrap = document.querySelector('.gallery-container > .search');
+    expect(searchWrap).not.toBeNull();
+    expect(searchWrap?.querySelector('.UniversalGifList')).not.toBeNull();
+    expect(searchWrap?.querySelectorAll('a[href^="/view/"]').length ?? 0).toBeGreaterThan(20);
+  });
 });
 
 describe('result extraction — the product stipulation', () => {

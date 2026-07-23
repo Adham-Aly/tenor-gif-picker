@@ -98,6 +98,15 @@ describe('live structure still matches our selectors', () => {
     expect(document.querySelector('.SearchPage > .gallery-container')).not.toBeNull();
   });
 
+  it('still nests the results grid inside .gallery-container > .search', () => {
+    // The extension must never `display:none` .search, because it wraps the grid.
+    // If this ever fails on live tenor, that assumption changed.
+    const { document } = parseHTML(html);
+    const searchWrap = document.querySelector('.gallery-container > .search');
+    expect(searchWrap).not.toBeNull();
+    expect(searchWrap?.querySelector('.UniversalGifList')).not.toBeNull();
+  });
+
   it('still keeps .BaseApp direct children in the expected band', () => {
     const { document } = parseHTML(html);
     const count = document.querySelector('.BaseApp')?.children.length ?? 0;

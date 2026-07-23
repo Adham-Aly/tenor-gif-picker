@@ -145,7 +145,7 @@ async function reconcileRules(): Promise<void> {
 
 async function flashUnsupported(tabId: number): Promise<void> {
   try {
-    await chrome.action.setBadgeText({ tabId, text: '✕' });
+    await chrome.action.setBadgeText({ tabId, text: '!' });
     await chrome.action.setBadgeBackgroundColor({ tabId, color: '#c0392b' });
     await chrome.action.setTitle({
       tabId,

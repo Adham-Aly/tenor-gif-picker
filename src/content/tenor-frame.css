@@ -28,12 +28,12 @@ html[data-tenor-picker] {
   color-scheme: dark;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
-  background: #131417 !important;
+  background: #0e0f12 !important;
   overflow-x: hidden !important;
 }
 
 html[data-tenor-picker] body {
-  background: #131417 !important;
+  background: #0e0f12 !important;
   color: #dbdee1 !important;
   margin: 0 !important;
   padding: 0 !important;
@@ -41,7 +41,7 @@ html[data-tenor-picker] body {
 }
 
 html[data-tenor-picker] .BaseApp {
-  background: #131417 !important;
+  background: #0e0f12 !important;
 }
 
 html[data-tenor-picker]::-webkit-scrollbar {
@@ -99,24 +99,38 @@ html[data-tenor-picker] .gallery-container {
 }
 
 /* ========================================================================== */
-/* TIER B — everything above the grid goes.                                   */
+/* TIER B — the strip above the grid.                                         */
 /*                                                                            */
-/* The related-search rail (`div.search > ul.TagList`) is tenor's "similar     */
-/* queries" strip. It is removed: this is a GIF picker, and the request is for */
-/* search results and nothing else.                                           */
+/* CRITICAL: `div.gallery-container > div.search` is NOT the suggestions rail. */
+/* It is the WRAPPER that contains the results grid itself:                    */
+/*                                                                            */
+/*   .gallery-container > .search                                             */
+/*       ├─ ul.TagList                    (the related-query rail — hide)      */
+/*       ├─ div.UniversalSearchFormatToggle (GIFs/Stickers/Memes — hide)      */
+/*       └─ div.UniversalGifList          (THE RESULTS — must stay visible)    */
+/*                                                                            */
+/* Setting `display:none` on `.search` therefore hides every result. Hide the */
+/* two rails by their own class instead, and only neutralise `.search`'s own   */
+/* spacing so nothing but the grid renders above the fold.                     */
 /* ========================================================================== */
 
 html[data-tenor-picker] .gallery-container > h1 {
   display: none !important; /* just echoes the query we already show */
 }
 
-html[data-tenor-picker] .gallery-container > .search,
 html[data-tenor-picker] .TagList {
-  display: none !important; /* related-query suggestions */
+  display: none !important; /* related-query suggestions — the actual rail */
 }
 
 html[data-tenor-picker] .UniversalSearchFormatToggle {
   display: none !important; /* GIFs / Stickers / Memes — GIFs only */
+}
+
+html[data-tenor-picker] .gallery-container > .search {
+  display: block !important; /* keep the grid's wrapper visible */
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
 }
 
 /* ========================================================================== */
@@ -157,7 +171,11 @@ html[data-tenor-picker] .UniversalGifList {
 
 html[data-tenor-picker] .UniversalGifListItem {
   margin: 5px 4px !important;
-  position: relative !important;
+  /* Do NOT set `position` here. tenor lays the grid out as absolute masonry —
+     each tile carries an inline `top:Npx` and the container an explicit height —
+     so forcing `position:relative` drops the tiles into normal flow and then
+     shifts each one down by its own `top`, scattering the grid. The favourite
+     star (position:absolute) anchors to tenor's own positioned tile just fine. */
 }
 
 html[data-tenor-picker] .UniversalGifListItem > a {
@@ -165,12 +183,12 @@ html[data-tenor-picker] .UniversalGifListItem > a {
   display: block !important;
   border-radius: 6px;
   overflow: hidden;
-  background: #1c1d21;
+  background: #1a1d24;
   -webkit-tap-highlight-color: transparent;
 }
 
 html[data-tenor-picker] .UniversalGifListItem > a:focus-visible {
-  outline: 2px solid #5865f2;
+  outline: 2px solid #6d5ef9;
   outline-offset: 2px;
 }
 
@@ -181,23 +199,25 @@ html[data-tenor-picker] .UniversalGifListItem video {
 }
 
 /* ========================================================================== */
-/* The copy affordance.                                                       */
+/* The action affordance.                                                     */
 /*                                                                            */
 /* The user's mental model, trained by every GIF grid on the internet, is      */
-/* "click -> navigate". We are changing that verb, so it has to be taught.     */
+/* "click -> navigate". We change that verb, so it has to be taught. The label  */
+/* names what actually happens: "Copy link" everywhere, "Send" on Discord      */
+/* (set via html[data-deliver="send"] by the content script).                  */
 /* ========================================================================== */
 
 html[data-tenor-picker] .UniversalGifListItem > a::after {
-  content: 'Click to copy link';
+  content: 'Copy link';
   position: absolute;
   inset: 0;
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding: 8px 6px;
+  padding: 9px 6px;
   box-sizing: border-box;
   font:
-    600 11px/1.25 -apple-system,
+    600 11.5px/1.2 -apple-system,
     BlinkMacSystemFont,
     'Segoe UI',
     Roboto,
@@ -205,17 +225,21 @@ html[data-tenor-picker] .UniversalGifListItem > a::after {
   color: #fff;
   text-align: center;
   letter-spacing: 0.01em;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
   background: linear-gradient(
     to top,
-    rgba(0, 0, 0, 0.74) 0%,
-    rgba(0, 0, 0, 0.28) 45%,
-    rgba(0, 0, 0, 0) 72%
+    rgba(8, 8, 12, 0.82) 0%,
+    rgba(8, 8, 12, 0.3) 46%,
+    rgba(8, 8, 12, 0) 74%
   );
   opacity: 0;
-  transition: opacity 100ms ease-out;
+  transition: opacity 110ms ease-out;
   pointer-events: none;
   border-radius: 6px;
+}
+
+html[data-tenor-picker][data-deliver='send'] .UniversalGifListItem > a::after {
+  content: 'Send';
 }
 
 html[data-tenor-picker] .UniversalGifListItem > a:hover::after {
@@ -223,19 +247,23 @@ html[data-tenor-picker] .UniversalGifListItem > a:hover::after {
 }
 
 html[data-tenor-picker] .UniversalGifListItem > a:active {
-  transform: scale(0.97);
-  transition: transform 60ms ease-out;
+  transform: scale(0.975);
+  transition: transform 70ms ease-out;
 }
 
 /* --- feedback states. Same specificity as :hover, declared after, so they win. --- */
 
 html[data-tenor-picker] .UniversalGifListItem.tgp-copied > a::after {
-  content: '✓  Copied';
+  content: 'Copied';
   opacity: 1;
   align-items: center;
-  font-size: 13px;
-  background: rgba(0, 0, 0, 0.6);
-  animation: tgp-pop 120ms ease-out;
+  font-size: 12.5px;
+  background: rgba(8, 8, 12, 0.66);
+  animation: tgp-pop 130ms ease-out;
+}
+
+html[data-tenor-picker][data-deliver='send'] .UniversalGifListItem.tgp-copied > a::after {
+  content: 'Sent';
 }
 
 html[data-tenor-picker] .UniversalGifListItem.tgp-failed > a::after {
@@ -243,15 +271,30 @@ html[data-tenor-picker] .UniversalGifListItem.tgp-failed > a::after {
   opacity: 1;
   align-items: center;
   font-size: 12px;
-  background: rgba(176, 32, 32, 0.75);
+  background: rgba(150, 40, 44, 0.8);
 }
 
+/* A drawn ring spinner rather than an ellipsis glyph. */
 html[data-tenor-picker] .UniversalGifListItem.tgp-busy > a::after {
-  content: '…';
+  content: '';
   opacity: 1;
   align-items: center;
-  font-size: 18px;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(8, 8, 12, 0.5);
+}
+
+html[data-tenor-picker] .UniversalGifListItem.tgp-busy > a::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  z-index: 1;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-top-color: #fff;
+  animation: tgp-spin 640ms linear infinite;
 }
 
 @keyframes tgp-pop {
@@ -262,6 +305,12 @@ html[data-tenor-picker] .UniversalGifListItem.tgp-busy > a::after {
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+@keyframes tgp-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -309,7 +358,7 @@ html[data-tenor-picker] .tgp-star:hover {
 }
 
 html[data-tenor-picker] .tgp-star:focus-visible {
-  outline: 2px solid #5865f2;
+  outline: 2px solid #6d5ef9;
   outline-offset: 2px;
   opacity: 1;
 }
@@ -318,8 +367,8 @@ html[data-tenor-picker] .tgp-star:focus-visible {
 html[data-tenor-picker] .tgp-star.tgp-star--on {
   opacity: 1;
   transform: scale(1);
-  background-color: rgba(0, 0, 0, 0.62);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23f0b232' stroke='%23f0b232' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.4l2.65 5.5 6 .88-4.33 4.24 1.02 6.02L12 17.2l-5.34 2.84 1.02-6.02L3.35 9.78l6-.88z'/%3E%3C/svg%3E");
+  background-color: rgba(8, 8, 12, 0.66);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23e7a73c' stroke='%23e7a73c' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.4l2.65 5.5 6 .88-4.33 4.24 1.02 6.02L12 17.2l-5.34 2.84 1.02-6.02L3.35 9.78l6-.88z'/%3E%3C/svg%3E");
 }
 
 html[data-tenor-picker] .tgp-star.tgp-star--pop {

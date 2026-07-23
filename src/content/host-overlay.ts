@@ -355,6 +355,13 @@ function install(): void {
 
     previouslyFocused = document.activeElement as HTMLElement | null;
 
+    // Tell the in-frame script whether to label actions "Send" (Discord) or
+    // "Copy link". Written before the picker iframe is created so the tenor
+    // frame reads a current value on boot.
+    void chrome.storage.local
+      .set({ [STORAGE_KEYS.deliver]: onDiscord ? 'send' : 'copy' })
+      .catch(() => undefined);
+
     await loadSize();
     buildDom(tabId ?? (await getTabId()));
     if (!hostEl || !wrap) return;

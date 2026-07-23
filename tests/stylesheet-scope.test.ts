@@ -141,11 +141,38 @@ describe('tenor-frame.css scoping', () => {
     expect(css).not.toMatch(/\.Gif\.Card/);
   });
 
-  it('hides the related-query suggestion rail', () => {
-    // The picker shows search results and nothing else. Both the rail and its
-    // wrapper go, so no empty gap is left above the grid.
+  it('hides the related-query suggestion rail by its own class', () => {
+    // The picker shows search results and nothing else. The rail is `.TagList`.
     expect(css).toMatch(/\.TagList\s*\{[\s\S]*?display:\s*none/);
-    expect(css).toContain('.gallery-container > .search');
+  });
+
+  it('NEVER hides `.gallery-container > .search` — it wraps the results grid', () => {
+    // REGRESSION GUARD. `.search` is not the suggestions rail; it is the wrapper
+    // that contains .UniversalGifList (proven in the fixture assertion below).
+    // A `display:none` on it hides every result, which is exactly the bug that
+    // dumped the full tenor page. If `.search` is styled at all, it must stay
+    // displayed.
+    const rule =
+      /html\[data-tenor-picker\][^{}]*\.gallery-container\s*>\s*\.search\b[^{]*\{([^}]*)\}/g;
+    let match: RegExpExecArray | null;
+    let seen = 0;
+    while ((match = rule.exec(css)) !== null) {
+      seen += 1;
+      expect(match[1]).not.toMatch(/display:\s*none/);
+      expect(match[1]).toMatch(/display:\s*block/);
+    }
+    // And it must not be swept up by a grouped `display:none` selector list.
+    expect(css).not.toMatch(/\.gallery-container\s*>\s*\.search\s*,[\s\S]*?display:\s*none/);
+    expect(css).not.toMatch(
+      /,[^{}]*\.gallery-container\s*>\s*\.search[^{}]*\{[^}]*display:\s*none/,
+    );
+    expect(seen).toBeGreaterThan(0);
+  });
+
+  it('does not override tenor’s masonry positioning on the tile', () => {
+    // tenor positions tiles with `position:absolute` + inline `top`. Forcing
+    // `position:relative` on `.UniversalGifListItem` scatters the grid.
+    expect(css).not.toMatch(/\.UniversalGifListItem\s*\{[^}]*position:\s*relative[^}]*!important/);
   });
 
   it('is dark unconditionally rather than following the OS theme', () => {

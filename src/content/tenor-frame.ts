@@ -13,6 +13,7 @@ import {
   RESULT_POLL_TIMEOUT_MS,
   STAR_CLASS,
   STAR_ON_CLASS,
+  STORAGE_KEYS,
   TILE_BUSY_CLASS,
   TILE_COPIED_CLASS,
   TILE_FAILED_CLASS,
@@ -332,13 +333,29 @@ function readRelease(): string | null {
   return safeUrl(raw, location.href)?.searchParams.get('release') ?? null;
 }
 
-function runHealthChecks(options: { selfHeal: boolean }): HealthReport {
+/**
+ * Is the results grid GENUINELY collapsed by our own CSS — i.e. it exists but
+ * has been given zero layout height — as opposed to merely "not painted yet"?
+ *
+ * This is the only signal strong enough to justify self-heal. A transient
+ * zero client-rect on the anchors (masonry mid-layout, images still decoding)
+ * must never trigger it; that false positive is exactly what stripped the
+ * stylesheet and dumped the full page in the previous version.
+ */
+function gridGenuinelyCollapsed(resultCount: number): boolean {
+  if (resultCount === 0) return false;
+  const grid = document.querySelector<HTMLElement>('.UniversalGifList');
+  if (!grid) return false;
+  if (grid.offsetHeight > 0) return false;
+  return getComputedStyle(grid).display === 'none' || grid.offsetParent === null;
+}
+
+function runHealthChecks(): HealthReport {
   const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>(RESULT_SELECTOR));
   const resultCount = anchors.length;
 
-  // H2 measures a client RECT rather than counting nodes. That is the whole
-  // point: it distinguishes "tenor returned nothing" from "results exist and we
-  // accidentally hid them". A naive single check conflates them.
+  // Measures a client RECT rather than counting nodes: it distinguishes
+  // "tenor returned nothing" from "results exist but aren't laid out yet".
   const visibleResults = anchors.filter((anchor) => {
     const rect = anchor.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
@@ -350,19 +367,11 @@ function runHealthChecks(options: { selfHeal: boolean }): HealthReport {
 
   let status: HealthStatus = 'ok';
   if (resultCount === 0) {
-    status = 'empty'; // H1 — not a surgery failure
-  } else if (visibleResults === 0) {
-    status = 'degraded'; // H2 — we hid them
+    status = 'empty'; // tenor genuinely returned nothing
+  } else if (gridGenuinelyCollapsed(resultCount)) {
+    status = 'degraded'; // our surgery collapsed a grid that has real results
   } else if (baseAppChildren > 0 && (baseAppChildren < 5 || baseAppChildren > 10)) {
-    status = 'structure-drift'; // H3
-  }
-
-  // Only ever self-heal on the FINAL determination. During polling a zero rect
-  // usually just means tenor's masonry has not laid out yet, and ripping out our
-  // stylesheet then would be a spectacular over-reaction.
-  if (status === 'degraded' && options.selfHeal) {
-    // An ugly picker showing real GIFs beats a beautiful empty one.
-    document.documentElement.removeAttribute(FRAME_ATTR);
+    status = 'structure-drift';
   }
 
   return { resultCount, visibleResults, baseAppChildren, columns, release: readRelease(), status };
@@ -371,27 +380,24 @@ function runHealthChecks(options: { selfHeal: boolean }): HealthReport {
 /**
  * Poll until the grid is actually laid out before reporting readiness.
  *
- * Sampling once was the cause of the spurious "No GIFs found" flash: tenor
- * server-renders the anchors, then its masonry moves them into column
- * containers, so an early read can legitimately see zero results or zero
- * client rects.
+ * tenor server-renders the anchors, then its masonry moves them into column
+ * containers, so an early read can legitimately see zero results or zero client
+ * rects. We settle as soon as results have real layout, and — crucially — the
+ * timeout path is NON-destructive: it reports whatever state we have and lets
+ * the picker decide, never strips the stylesheet.
  */
 function pollUntilReady(): void {
   const started = Date.now();
 
   const attempt = (): void => {
-    const health = runHealthChecks({ selfHeal: false });
+    const health = runHealthChecks();
     const settled = health.resultCount > 0 && health.visibleResults > 0;
+    const timedOut = Date.now() - started >= RESULT_POLL_TIMEOUT_MS;
 
-    if (settled) {
+    if (settled || timedOut) {
       ensureStars();
+      maybeSelfHeal(health);
       send({ type: 'frame:ready', health, query: parseSearchSlug(location.pathname) });
-      return;
-    }
-
-    if (Date.now() - started >= RESULT_POLL_TIMEOUT_MS) {
-      const final = runHealthChecks({ selfHeal: true });
-      send({ type: 'frame:ready', health: final, query: parseSearchSlug(location.pathname) });
       return;
     }
 
@@ -399,6 +405,32 @@ function pollUntilReady(): void {
   };
 
   attempt();
+}
+
+// Self-heal only fires after this many consecutive genuinely-collapsed reads,
+// so a single odd frame can never rip out the stylesheet.
+let collapsedStreak = 0;
+
+/**
+ * Reversible, conservative self-heal.
+ *
+ * If — and only if — the grid is genuinely collapsed (zero layout height) for
+ * two consecutive checks, remove the surgery so the user sees real GIFs instead
+ * of a blank box. If a later check shows the grid is fine again, restore it.
+ * This is the safety net for tenor changing its markup between canary runs; it
+ * is deliberately hard to trigger.
+ */
+function maybeSelfHeal(health: HealthReport): void {
+  if (health.status === 'degraded') {
+    collapsedStreak += 1;
+    if (collapsedStreak >= 2) document.documentElement.removeAttribute(FRAME_ATTR);
+  } else {
+    collapsedStreak = 0;
+    if (health.visibleResults > 0 && !document.documentElement.hasAttribute(FRAME_ATTR)) {
+      // Recovered — re-apply the surgery.
+      markFrame();
+    }
+  }
 }
 
 /**
@@ -414,7 +446,9 @@ function watchGrid(): void {
     if (timer !== null) window.clearTimeout(timer);
     timer = window.setTimeout(() => {
       timer = null;
-      send({ type: 'frame:health', health: runHealthChecks({ selfHeal: false }) });
+      const health = runHealthChecks();
+      maybeSelfHeal(health);
+      send({ type: 'frame:health', health });
     }, 250);
   };
 
@@ -423,12 +457,29 @@ function watchGrid(): void {
   new MutationObserver(recheck).observe(target, { childList: true, subtree: true });
 }
 
+/**
+ * Reflect the delivery mode set by the host overlay so each tile's hover label
+ * reads "Send" on Discord and "Copy link" everywhere else.
+ */
+function applyDeliverMode(): void {
+  try {
+    void chrome.storage.local.get(STORAGE_KEYS.deliver).then((stored) => {
+      const mode: unknown = stored[STORAGE_KEYS.deliver];
+      if (mode === 'send') document.documentElement.setAttribute('data-deliver', 'send');
+      else document.documentElement.removeAttribute('data-deliver');
+    });
+  } catch {
+    /* storage unavailable — the default "Copy link" label is still correct */
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
 if (isPickerFrame()) {
   markFrameWhenReady();
+  applyDeliverMode();
 
   // Capture phase, registered at document_start: this must be in place before
   // tenor's own bundle runs, so no page handler can stopImmediatePropagation()

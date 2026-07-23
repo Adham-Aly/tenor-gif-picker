@@ -1,6 +1,6 @@
 {
   "name": "tenor-gif-picker",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "Discord-style Tenor GIF picker Chrome extension. Click a GIF to copy its tenor.com/view/ link.",

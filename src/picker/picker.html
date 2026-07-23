@@ -9,16 +9,22 @@
   <body>
     <div class="app" role="dialog" aria-label="Tenor GIF picker">
       <header class="bar">
-        <div class="search">
-          <svg class="search__icon" viewBox="0 0 16 16" aria-hidden="true">
-            <path
-              d="M7 1a6 6 0 1 0 3.72 10.72l3.28 3.28 1.06-1.06-3.28-3.28A6 6 0 0 0 7 1Zm0 1.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
-              fill="currentColor"
+        <div class="field">
+          <svg class="field__icon" viewBox="0 0 20 20" aria-hidden="true">
+            <circle cx="9" cy="9" r="6" fill="none" stroke="currentColor" stroke-width="1.7" />
+            <line
+              x1="13.5"
+              y1="13.5"
+              x2="17.5"
+              y2="17.5"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
             />
           </svg>
           <input
             id="query"
-            class="search__input"
+            class="field__input"
             type="text"
             placeholder="Search Tenor"
             autocomplete="off"
@@ -26,12 +32,26 @@
             spellcheck="false"
             aria-label="Search Tenor for GIFs"
           />
-          <span id="spinner" class="search__spinner" aria-hidden="true" hidden></span>
-          <button id="clear" class="search__clear" type="button" aria-label="Clear search" hidden>
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path
-                d="M4.4 3.34 8 6.94l3.6-3.6 1.06 1.06L9.06 8l3.6 3.6-1.06 1.06L8 9.06l-3.6 3.6-1.06-1.06L6.94 8l-3.6-3.6Z"
-                fill="currentColor"
+          <span id="spinner" class="field__spinner" aria-hidden="true" hidden></span>
+          <button id="clear" class="field__clear" type="button" aria-label="Clear search" hidden>
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <line
+                x1="6"
+                y1="6"
+                x2="14"
+                y2="14"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+              <line
+                x1="14"
+                y1="6"
+                x2="6"
+                y2="14"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
               />
             </svg>
           </button>
@@ -39,29 +59,41 @@
 
         <button
           id="favs-toggle"
-          class="iconbtn iconbtn--star"
+          class="ghost ghost--star"
           type="button"
-          aria-label="Show favourites"
+          aria-label="Show saved GIFs"
           aria-pressed="false"
-          title="Favourites"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
-              d="M12 3.4l2.65 5.5 6 .88-4.33 4.24 1.02 6.02L12 17.2l-5.34 2.84 1.02-6.02L3.35 9.78l6-.88z"
+              d="M12 3.6l2.55 5.3 5.8.85-4.18 4.1.99 5.82L12 17.02l-5.16 2.65.99-5.82L3.65 9.75l5.8-.85z"
               fill="none"
               stroke="currentColor"
-              stroke-width="2.1"
-              stroke-linecap="round"
+              stroke-width="1.7"
               stroke-linejoin="round"
             />
           </svg>
         </button>
 
-        <button id="close" class="iconbtn" type="button" aria-label="Close GIF picker">
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path
-              d="M4.4 3.34 8 6.94l3.6-3.6 1.06 1.06L9.06 8l3.6 3.6-1.06 1.06L8 9.06l-3.6 3.6-1.06-1.06L6.94 8l-3.6-3.6Z"
-              fill="currentColor"
+        <button id="close" class="ghost" type="button" aria-label="Close">
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <line
+              x1="5.5"
+              y1="5.5"
+              x2="14.5"
+              y2="14.5"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+            <line
+              x1="14.5"
+              y1="5.5"
+              x2="5.5"
+              y2="14.5"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
             />
           </svg>
         </button>
@@ -70,9 +102,8 @@
       <div id="progress" class="progress" hidden><span class="progress__bar"></span></div>
 
       <main class="body">
-        <!-- Held at opacity 0 until the in-frame script handshakes. This is the
-             actual guarantee against a flash of un-surgered tenor; the manifest
-             CSS timing is only an optimisation. -->
+        <!-- Held at opacity 0 until the in-frame script confirms visible results.
+             This is the guarantee against revealing an unpainted (black) frame. -->
         <iframe
           id="frame"
           class="frame"
@@ -82,90 +113,162 @@
         ></iframe>
 
         <section id="pane-idle" class="pane pane--scroll">
-          <div id="recents-block" class="block" hidden>
-            <div class="block__head">
-              <h2 class="block__title">Recent</h2>
-              <button id="clear-recents" class="linkbtn" type="button">Clear</button>
+          <div id="recents-block" class="group" hidden>
+            <div class="group__head">
+              <h2 class="eyebrow">Recent</h2>
+              <button id="clear-recents" class="link" type="button">Clear</button>
             </div>
             <div id="recents" class="chips"></div>
           </div>
-          <div class="block">
-            <h2 class="block__title">Try</h2>
+          <div class="group">
+            <h2 class="eyebrow">Suggestions</h2>
             <div id="suggestions" class="chips"></div>
           </div>
-          <p class="hint">Pick a GIF and its link lands on your clipboard.</p>
         </section>
 
         <section id="pane-loading" class="pane" hidden>
-          <div class="loading__head">
-            <span class="loading__dot"></span>
-            <span id="loading-label" class="loading__label">Searching Tenor…</span>
-          </div>
           <div id="skeleton" class="skeleton" aria-hidden="true"></div>
-          <p id="slow-hint" class="pane__hint" hidden>Still loading…</p>
+          <div class="loading">
+            <span class="loading__dot"></span>
+            <span id="loading-label" class="loading__label">Searching</span>
+          </div>
+          <p id="slow-hint" class="loading__hint" hidden>Still loading</p>
         </section>
 
         <section id="pane-favs" class="pane pane--scroll" hidden>
-          <div class="block__head block__head--sticky">
-            <h2 class="block__title">Favourites</h2>
-            <button id="clear-favs" class="linkbtn" type="button" hidden>Clear all</button>
+          <div class="group__head group__head--sticky">
+            <h2 class="eyebrow">Saved</h2>
+            <button id="clear-favs" class="link" type="button" hidden>Clear all</button>
           </div>
-          <div id="favs-grid" class="favgrid"></div>
-          <div id="favs-empty" class="state state--inline" hidden>
-            <div class="state__emoji" aria-hidden="true">⭐</div>
-            <h3 class="state__title">No favourites yet</h3>
-            <p class="state__body">
-              Hover any GIF and click the star in its corner to save it here.
-            </p>
+          <div id="favs-grid" class="masonry"></div>
+          <div id="favs-empty" class="notice-state" hidden>
+            <div class="notice-state__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path
+                  d="M12 3.6l2.55 5.3 5.8.85-4.18 4.1.99 5.82L12 17.02l-5.16 2.65.99-5.82L3.65 9.75l5.8-.85z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </div>
+            <h3 class="notice-state__title">No saved GIFs</h3>
+            <p class="notice-state__body">Hover a GIF and select the star to save it here.</p>
           </div>
         </section>
 
         <section id="pane-empty" class="pane pane--center" hidden>
-          <div class="state">
-            <div class="state__emoji" aria-hidden="true">🔍</div>
-            <h2 class="state__title">No GIFs found</h2>
-            <p class="state__body" id="empty-body">Nothing matched that search.</p>
+          <div class="notice-state">
+            <div class="notice-state__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <circle
+                  cx="11"
+                  cy="11"
+                  r="7"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                />
+                <line
+                  x1="16"
+                  y1="16"
+                  x2="20.5"
+                  y2="20.5"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </div>
+            <h2 class="notice-state__title">No results</h2>
+            <p class="notice-state__body" id="empty-body">Try a different search.</p>
             <div id="empty-chips" class="chips chips--center"></div>
           </div>
         </section>
 
         <section id="pane-error" class="pane pane--center" hidden>
-          <div class="state">
-            <div class="state__emoji" aria-hidden="true">🚫</div>
-            <h2 class="state__title">Can't load Tenor here</h2>
-            <p class="state__body" id="error-body">
+          <div class="notice-state">
+            <div class="notice-state__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path
+                  d="M12 4l8 14H4z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linejoin="round"
+                />
+                <line
+                  x1="12"
+                  y1="10"
+                  x2="12"
+                  y2="13.5"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                />
+                <circle cx="12" cy="16" r="0.9" fill="currentColor" />
+              </svg>
+            </div>
+            <h2 class="notice-state__title">Can't load here</h2>
+            <p class="notice-state__body" id="error-body">
               This page's security policy may be blocking the picker.
             </p>
-            <div class="state__actions">
-              <button id="open-tab" class="btn btn--primary" type="button">
-                Open Tenor in a new tab
-              </button>
+            <div class="actions">
+              <button id="open-tab" class="btn btn--primary" type="button">Open in Tenor</button>
               <button id="retry" class="btn" type="button">Retry</button>
             </div>
           </div>
         </section>
 
         <section id="pane-offline" class="pane pane--center" hidden>
-          <div class="state">
-            <div class="state__emoji" aria-hidden="true">📡</div>
-            <h2 class="state__title">You're offline</h2>
-            <p class="state__body">The picker will retry when your connection is back.</p>
-            <div class="state__actions">
-              <button id="retry-offline" class="btn" type="button">Retry now</button>
+          <div class="notice-state">
+            <div class="notice-state__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path
+                  d="M4 9c4.5-4 11.5-4 16 0"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.5 12.5c2.6-2.3 6.4-2.3 9 0"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                />
+                <circle cx="12" cy="16.5" r="1.1" fill="currentColor" />
+                <line
+                  x1="4"
+                  y1="20"
+                  x2="20"
+                  y2="4"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </div>
+            <h2 class="notice-state__title">No connection</h2>
+            <p class="notice-state__body">Check your network, then try again.</p>
+            <div class="actions">
+              <button id="retry-offline" class="btn" type="button">Retry</button>
             </div>
           </div>
         </section>
       </main>
 
-      <div id="notice" class="notice" hidden>
+      <div id="notice" class="banner" hidden>
         <span id="notice-text"></span>
-        <button id="notice-dismiss" class="linkbtn" type="button">Dismiss</button>
+        <button id="notice-dismiss" class="link" type="button">Dismiss</button>
       </div>
 
-      <!-- Tier 4 of the clipboard ladder. Always reachable, so even a lying
-           success leaves the user one Cmd+C from the right answer. -->
+      <!-- Last rung of the clipboard ladder: always reachable, so even a lying
+           success leaves the URL selected and one keystroke from copied. -->
       <div id="manual" class="manual" hidden>
-        <label class="manual__label" for="manual-url">Couldn't copy — press ⌘/Ctrl + C</label>
+        <label class="manual__label" for="manual-url">Couldn't copy. Press Cmd or Ctrl + C</label>
         <input id="manual-url" class="manual__input" type="text" readonly />
       </div>
 

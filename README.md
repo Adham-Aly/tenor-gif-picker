@@ -127,8 +127,8 @@ The full design rationale, including the alternatives that were rejected and why
 ```bash
 npm run build        # produce dist/
 npm run watch        # rebuild on change (then hit ↻ on chrome://extensions)
-npm test             # 118 unit + integration tests, no network
-npm run canary       # 9 live tests against the real tenor.com
+npm test             # 121 unit + integration tests, no network
+npm run canary       # 10 live tests against the real tenor.com
 npm run check        # typecheck + lint + format + test + build
 ```
 
@@ -158,6 +158,7 @@ Four exist to catch specific, nasty bugs:
 - **`clipboard.test.ts`** contains a clipboard-hijack regression test. If the internal `copy` listener were registered with `{ once: true }`, a failed copy would leave it attached forever, and the next time you pressed ⌘C on your own selection you would get a GIF URL. That path only arms _after_ a failure, so no ordinary test would find it.
 - **`click-action.test.ts`** runs the click policy over all 209 anchors of a real captured Tenor page, proving exactly the 49 results copy and the promoted "Upload to Tenor" tile can never produce a clipboard write.
 - **`discord.test.ts`** asserts an empty message is never sent when insertion failed, and that the legacy `keyCode` Discord reads is actually present on the synthetic Enter.
+- **`stylesheet-scope.test.ts` / `canary.test.ts`** together pin a subtle invariant: tenor nests the results grid _inside_ `.gallery-container > .search`, so the surgery must never `display:none` that wrapper. Hiding it once collapsed the whole grid and dumped the full tenor page — the tests now fail if any rule hides `.search`.
 
 **`npm run canary`** is the maintenance test. It checks the real tenor.com for the things this extension depends on: that `X-Frame-Options` is still the only framing block, that no `frame-ancestors` has appeared, that their bundle still contains no frame-busting code, that the masonry thresholds are unchanged, and that our selectors still match. Run it if the picker ever starts looking wrong — it will usually name the cause.
 

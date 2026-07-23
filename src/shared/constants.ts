@@ -96,6 +96,8 @@ export const STORAGE_KEYS = {
   favourites: 'picker.favourites',
   health: 'picker.lastHealth',
   settings: 'picker.settings',
+  /** 'send' on Discord, 'copy' elsewhere — drives the in-frame action label. */
+  deliver: 'picker.deliver',
 } as const;
 
 export const MAX_RECENTS = 8;

@@ -36,7 +36,7 @@ import {
   type PickerMessage,
   type SwToPickerMessage,
 } from '../shared/messages.js';
-import { buildSearchUrl, slugifyQuery } from '../shared/urls.js';
+import { buildSearchUrl } from '../shared/urls.js';
 
 // ---------------------------------------------------------------------------
 // DOM
@@ -99,6 +99,7 @@ const tabId = Number.isInteger(rawTabId) ? rawTabId : -1;
 let port: chrome.runtime.Port | null = null;
 let reconnectAttempts = 0;
 let currentQuery = '';
+let deliverMode: 'copy' | 'send' = 'copy';
 let view: View = 'idle';
 /** The view to return to when leaving the favourites panel. */
 let viewBeforeFavs: View = 'idle';
@@ -187,15 +188,26 @@ function request(
  */
 async function ensureArmed(): Promise<boolean> {
   if (!port) connect();
-  const reply = await request({ type: 'picker:arm', requestId: nextRequestId('arm') }, 'sw:armed');
-  return reply?.type === 'sw:armed' ? reply.ok : false;
+  // Retry once: on a cold service worker the first round trip can lose the race
+  // while the worker spins up, which was a source of the "retry a few times and
+  // it works" reports.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const reply = await request(
+      { type: 'picker:arm', requestId: nextRequestId('arm') },
+      'sw:armed',
+    );
+    if (reply?.type === 'sw:armed' && reply.ok) return true;
+    if (!port) connect();
+    await new Promise((resolve) => window.setTimeout(resolve, 180));
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
 // Views
 // ---------------------------------------------------------------------------
 
-function setBusy(busy: boolean, label = 'Searching Tenor…'): void {
+function setBusy(busy: boolean, label = 'Searching'): void {
   progress.hidden = !busy;
   spinner.hidden = !busy;
   loadingLabel.textContent = label;
@@ -426,7 +438,7 @@ async function useGif(url: string, tile?: HTMLElement): Promise<void> {
 
   if (result.ok) {
     manualUrl.value = url;
-    showToast('Link copied');
+    showToast(deliverMode === 'send' ? 'Sent' : 'Copied');
     if (tile) {
       tile.classList.add('is-copied');
       window.setTimeout(() => tile.classList.remove('is-copied'), TILE_FEEDBACK_MS);
@@ -445,11 +457,15 @@ async function useGif(url: string, tile?: HTMLElement): Promise<void> {
 // Search
 // ---------------------------------------------------------------------------
 
-/** Slug-normalised comparison, so "Happy  Cat" and "happy cat" match. */
-function sameQuery(a: string | null, b: string | null): boolean {
-  if (!a || !b) return true; // nothing to disprove
-  return slugifyQuery(a) === slugifyQuery(b);
-}
+/**
+ * Monotonic navigation id. Every search bumps it; the frame's readiness reports
+ * are matched against `navId` rather than against the human query string, so a
+ * slug tenor canonicalises (e.g. "cats" -> "cat") can never be mistaken for a
+ * stale report and dropped — which used to strand the picker in "loading".
+ */
+let navId = 0;
+let navRetried = false;
+let retryTimer: number | null = null;
 
 async function search(rawQuery: string, options: { remember?: boolean } = {}): Promise<void> {
   const query = rawQuery.trim();
@@ -466,6 +482,8 @@ async function search(rawQuery: string, options: { remember?: boolean } = {}): P
     return;
   }
 
+  navId += 1;
+  navRetried = false;
   setView('loading');
   startLoadWatchdogs();
 
@@ -475,8 +493,26 @@ async function search(rawQuery: string, options: { remember?: boolean } = {}): P
     return;
   }
 
-  frame.src = url;
+  navigateFrame(url);
   if (options.remember !== false) pushRecent(query);
+}
+
+/**
+ * Point the frame at a URL and schedule a single automatic reload if the
+ * in-frame handshake never lands — covering a cold-worker race where the header
+ * strip is armed a beat too late and the first load comes back blocked.
+ */
+function navigateFrame(url: string): void {
+  const mine = navId;
+  if (retryTimer !== null) window.clearTimeout(retryTimer);
+  frame.src = url;
+  retryTimer = window.setTimeout(() => {
+    retryTimer = null;
+    if (mine === navId && !navRetried && view === 'loading') {
+      navRetried = true;
+      frame.src = url;
+    }
+  }, FRAME_SLOW_MS);
 }
 
 function updateClearButton(): void {
@@ -510,41 +546,58 @@ function applyHealth(health: HealthReport): void {
     .catch(() => undefined);
 }
 
+/**
+ * Reveal the frame only when results genuinely have layout. Revealing on a mere
+ * node count would un-hide an unpainted frame — the "black page". If the frame
+ * is not showing search results, keep the skeleton up.
+ */
+function reveal(health: HealthReport): void {
+  if (retryTimer !== null) {
+    window.clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+  clearTimers();
+  if (health.visibleResults > 0 || health.resultCount > 0) {
+    setView('ready');
+  }
+}
+
 function handleFrameEvent(event: FrameMessage): void {
   switch (event.type) {
     case 'frame:ready': {
-      // Ignore a late report for a search the user has already moved on from.
-      if (!sameQuery(event.query, currentQuery)) return;
-
-      clearTimers();
       applyHealth(event.health);
-
-      if (event.health.resultCount === 0) {
+      // Keep our own box in sync with the slug tenor actually landed on.
+      if (event.query) {
+        currentQuery = event.query;
+        queryInput.value = event.query;
+        updateClearButton();
+      }
+      if (event.health.resultCount === 0 && event.health.visibleResults === 0) {
         emptyBody.textContent = currentQuery
-          ? `Nothing matched “${currentQuery}”.`
-          : 'Nothing matched that search.';
+          ? `Nothing matched "${currentQuery}".`
+          : 'Try a different search.';
         renderEmptySuggestions();
+        clearTimers();
         setView('empty');
       } else {
-        setView('ready');
+        reveal(event.health);
       }
       return;
     }
     case 'frame:health':
       applyHealth(event.health);
-      // Results can arrive after we already concluded there were none — tenor
-      // re-renders its grid on client-side routes and on infinite scroll. Take
-      // the rescue rather than leaving a wrong "No GIFs found" on screen.
-      if (event.health.resultCount > 0 && (view === 'empty' || view === 'loading')) {
-        clearTimers();
-        setView('ready');
+      // Results can arrive after we concluded there were none — tenor re-renders
+      // its grid on client-side routes and on infinite scroll. Rescue only once
+      // they actually have layout, so we never reveal an unpainted frame.
+      if (event.health.visibleResults > 0 && (view === 'empty' || view === 'loading')) {
+        reveal(event.health);
       }
       return;
     case 'frame:copy-pending':
       return;
     case 'frame:copied':
       manualUrl.value = event.url;
-      showToast('Link copied');
+      showToast(deliverMode === 'send' ? 'Sent' : 'Copied');
       return;
     case 'frame:copy-failed':
       void handleCopyFailure(event.url);
@@ -574,7 +627,7 @@ async function handleCopyFailure(url: string): Promise<void> {
   );
   if (reply?.type === 'sw:copy-offscreen-result' && reply.ok) {
     manualUrl.value = url;
-    showToast('Link copied');
+    showToast(deliverMode === 'send' ? 'Sent' : 'Copied');
     return;
   }
   showToast("Couldn't copy — press ⌘/Ctrl + C", 'error');
@@ -686,6 +739,13 @@ watchFavourites((list) => {
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
+
+void chrome.storage.local
+  .get(STORAGE_KEYS.deliver)
+  .then((stored) => {
+    if (stored[STORAGE_KEYS.deliver] === 'send') deliverMode = 'send';
+  })
+  .catch(() => undefined);
 
 buildSkeleton();
 renderIdle();
